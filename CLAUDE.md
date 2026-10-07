@@ -49,3 +49,4 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
   - optionally, a child reopening moves a Done parent back to In Progress, with a comment; if the workflow blocks that, it only comments
 - Design pages are resolved by page ID first, then label, then title pattern. A Confluence link on a step ticket overrides all of these.
 - Demo use case: "Order Fulfilment Performance". Graphviz is a dev-only dependency.
+- Confluence sync scales to the enterprise space (~3000 docs) by design: `get_descendants` is metadata-only and `sync_tree` fetches full bodies only for new/changed pages, concurrently. Still open: verify the account's actual Confluence Cloud rate limits against the batch/worker sizes — see the docstrings in `src/sdlc/adapters/confluence.py` (`get_descendants`, `_PAGE_ID_BATCH`) and `src/sdlc/confluence_sync.py`.

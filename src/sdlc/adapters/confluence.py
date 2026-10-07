@@ -7,6 +7,8 @@ Verified against developer.atlassian.com/cloud/confluence/rest/v2 (Oct 2026):
                                                                 version.number, body.export_view.value
 - GET  /wiki/api/v2/pages/{id}/ancestors                    -> [{id, type}, ...] root-first, no title
 - GET  /wiki/api/v2/pages/{id}/descendants?cursor&limit     -> [{id, title, parentId, depth}, ...]
+- GET  /wiki/api/v2/pages?id={id1}&id={id2}&...             -> batched metadata (incl. version.number)
+                                                                without fetching any body
 - GET  /wiki/api/v2/pages/{id}/attachments?cursor&limit     -> [{id, title, downloadLink, mediaType,
                                                                 fileSize}, ...]
 - POST /wiki/api/v2/pages                                    -> create (body.representation="storage")
@@ -28,6 +30,11 @@ def slugify(title: str) -> str:
 
 
 class ConfluenceClient:
+    # Conservative batch size for the GET /pages?id=... metadata pass. The API doesn't
+    # document a hard max for this array param; re-check Confluence Cloud rate limits
+    # for the account before a large first sync and tune if needed.
+    _PAGE_ID_BATCH = 100
+
     def __init__(self, base_url: str, email: str, api_token: str, space_key: str):
         self.base_url = base_url.rstrip("/")
         self.space_key = space_key
@@ -66,10 +73,23 @@ class ConfluenceClient:
         return self._space_id_cache
 
     def _ancestor_path(self, page_id: str) -> str:
-        """Titles of every ancestor, root-first, joined with '/' (no page IDs)."""
+        """Titles of every ancestor, root-first, joined with '/' (no page IDs). Live,
+        one-off lookup for a single arbitrary page (e.g. resolving an anchor page in
+        Phase 6) — NOT used by get_descendants, which builds paths in-memory instead
+        to avoid an API call per page. See CLAUDE.md "Enterprise scale: Confluence sync"."""
         ancestors = self._get(f"/pages/{page_id}/ancestors").get("results", [])
         titles = [self._get(f"/pages/{a['id']}")["title"] for a in ancestors]
         return "/".join([self.space_key, *titles])
+
+    def _fetch_versions(self, page_ids: list[str]) -> dict[str, int]:
+        """version.number for many pages via GET /pages?id=..., batched, with no body
+        fetched at all — the cheap half of the descendants metadata pass."""
+        versions: dict[str, int] = {}
+        for i in range(0, len(page_ids), self._PAGE_ID_BATCH):
+            chunk = page_ids[i:i + self._PAGE_ID_BATCH]
+            for item in self._get_all("/pages", params={"id": chunk}):
+                versions[item["id"]] = item["version"]["number"]
+        return versions
 
     # -- DocumentSource --------------------------------------------------
     def get_page(self, page_id: str) -> Page:
@@ -85,16 +105,46 @@ class ConfluenceClient:
         )
 
     def get_descendants(self, root_page_id: str) -> list[Page]:
-        """Full page tree under root_page_id (root included). One get_page() call per
-        descendant — simple and correct; the demo corpus is small enough that this isn't
-        a bottleneck, so we don't add a lighter metadata-only path.
+        """Metadata-only pass over the tree under root_page_id (root included): one
+        paginated /descendants call (which already returns id/title/parentId for every
+        page) plus one batched /pages?id=... call for versions. No per-page body or
+        ancestor-API call, so this scales to a ~3000-page space (O(pages/limit) requests,
+        not O(n)). Returned pages have html="" — callers fetch the full body via
+        get_page() only for pages that are actually new/changed (see confluence_sync.py
+        and CLAUDE.md "Enterprise scale: Confluence sync").
 
-        TODO before syncing a real enterprise space (~3000 pages): this is O(n) full-body
-        fetches per sync. See "Known limitation" in CLAUDE.md for the fix (a cheap
-        GET /pages?id=... metadata pass to diff versions, then full get_page() only for
-        the pages that actually changed)."""
+        Note: root_page_id is treated as the top of the mirrored folder tree — its real
+        Confluence ancestors above it (if any) are intentionally not included, so a
+        use-case sync stays scoped to its own sub-tree regardless of where it sits in
+        the wider space."""
         descendants = self._get_all(f"/pages/{root_page_id}/descendants")
-        return [self.get_page(root_page_id)] + [self.get_page(d["id"]) for d in descendants]
+        root = self._get(f"/pages/{root_page_id}")
+        nodes = {root_page_id: {"title": root["title"], "parentId": None}}
+        for d in descendants:
+            nodes[d["id"]] = {"title": d["title"], "parentId": d.get("parentId")}
+
+        versions = self._fetch_versions(list(nodes))
+        return [
+            Page(
+                page_id=page_id,
+                space_key=self.space_key,
+                title=node["title"],
+                url="",
+                version=versions.get(page_id, 1),
+                parent_path=self._path_from_nodes(nodes, page_id),
+            )
+            for page_id, node in nodes.items()
+        ]
+
+    def _path_from_nodes(self, nodes: dict, page_id: str) -> str:
+        """Walks the parentId chain already in `nodes` (built from one /descendants
+        call) — no extra API calls, unlike `_ancestor_path`."""
+        titles: list[str] = []
+        node_id = nodes[page_id]["parentId"]
+        while node_id:
+            titles.insert(0, nodes[node_id]["title"])
+            node_id = nodes[node_id]["parentId"]
+        return "/".join([self.space_key, *titles])
 
     def get_attachments(self, page_id: str) -> list[Attachment]:
         items = self._get_all(f"/pages/{page_id}/attachments")
