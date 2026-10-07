@@ -1,0 +1,53 @@
+# How the analyst agent finds each role's Confluence page: page_id (preferred) first,
+# then label, then title_pattern. `sdlc seed --apply` fills in page_id after creating
+# each page. A Confluence link attached directly to a workflow step ticket overrides
+# all of these (see CLAUDE.md "Workflow").
+roles:
+  usecase_root:
+    label: role-usecase-root
+    title_pattern: "Order Fulfilment Performance"
+    page_id: null
+  frontdoor_request:
+    label: role-frontdoor-request
+    title_pattern: "Frontdoor Request*"
+    page_id: null
+  stakeholder_requirements:
+    label: role-stakeholder-requirements
+    title_pattern: "Stakeholder Requirements*"
+    page_id: null
+  scope:
+    label: role-scope
+    title_pattern: "Scope*"
+    page_id: null
+  feasibility_analysis:
+    label: role-feasibility-analysis
+    title_pattern: "Feasibility Analysis*"
+    page_id: null
+  source_data_analysis:
+    label: role-source-data-analysis
+    title_pattern: "Source Data Analysis*"
+    page_id: null
+  conceptual_data_model:
+    label: role-conceptual-data-model
+    title_pattern: "Conceptual Data Model*"
+    page_id: null
+  solution_architecture:
+    label: role-solution-architecture
+    title_pattern: "Solution Architecture*"
+    page_id: null
+  data_design_solution:
+    label: role-data-design-solution
+    title_pattern: "Data Design Solution*"
+    page_id: null
+  technical_design_solution:
+    label: role-technical-design-solution
+    title_pattern: "Technical Design Solution*"
+    page_id: null
+  data_contract:
+    label: role-data-contract
+    title_pattern: "Data Contract*"
+    page_id: null
+  test_strategy:
+    label: role-test-strategy
+    title_pattern: "Test Strategy*"
+    page_id: null

@@ -1,0 +1,31 @@
+# Maps generic terms the tool uses internally to this organisation's own wording.
+# The demo use case keeps the generic names; an enterprise use case overrides this
+# file (e.g. "Frontdoor Request" -> "Intake Form") with no code changes.
+terms:
+  frontdoor_request: Frontdoor Request
+  stakeholder_requirements: Stakeholder Requirements
+  scope: Scope
+  feasibility_analysis: Feasibility Analysis
+  source_data_analysis: Source Data Analysis
+  conceptual_data_model: Conceptual Data Model
+  solution_architecture: Solution Architecture
+  data_design_solution: Data Design Solution
+  technical_design_solution: Technical Design Solution
+  solution_requirements: Solution Requirements
+  data_contract: Data Contract
+  test_strategy: Test Strategy
+
+layers:
+  raw: Raw
+  curated: Curated
+  presentation: Presentation
+
+issue_types:
+  epic: Epic
+  story: Story
+  subtask: Sub-task
+
+statuses:
+  todo: To Do
+  in_progress: In Progress
+  done: Done

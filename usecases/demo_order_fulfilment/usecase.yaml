@@ -1,3 +1,9 @@
-# Placeholder for Phase 3 (demo use case seed content, terminology.yaml, page_roles.yaml, templates).
+# Demo use case: generic flow proof, dummy data only, fictional retailer.
 use_case: demo_order_fulfilment
 display_name: Order Fulfilment Performance
+sponsor: VP, Fulfilment Operations (dummy)
+sources: [Orders, Shipments, Customers, Product Catalogue]
+metrics:
+  - On-time delivery %
+  - Average fulfilment time
+  - Backorder rate

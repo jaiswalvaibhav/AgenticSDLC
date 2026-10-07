@@ -11,8 +11,14 @@ Verified against developer.atlassian.com/cloud/confluence/rest/v2 (Oct 2026):
                                                                 without fetching any body
 - GET  /wiki/api/v2/pages/{id}/attachments?cursor&limit     -> [{id, title, downloadLink, mediaType,
                                                                 fileSize}, ...]
+- GET  /wiki/api/v2/pages?title={t}&space-id={id}            -> find an existing page by title
+                                                                (used for idempotent re-seeding)
 - POST /wiki/api/v2/pages                                    -> create (body.representation="storage")
 - PUT  /wiki/api/v2/pages/{id}                                -> update (needs version.number + 1)
+- POST /wiki/rest/api/content/{id}/child/attachment          -> upload an attachment (v1 API —
+                                                                v2 has no attachment-upload endpoint;
+                                                                multipart/form-data, needs the
+                                                                X-Atlassian-Token: nocheck header)
 `export_view` is a read-only output format; `storage` is the only representation used for writes.
 """
 import base64
@@ -146,6 +152,11 @@ class ConfluenceClient:
             node_id = nodes[node_id]["parentId"]
         return "/".join([self.space_key, *titles])
 
+    def find_page_by_title(self, title: str) -> Page | None:
+        results = self._get("/pages", params={"title": title, "space-id": self._space_id()}
+                             ).get("results", [])
+        return self.get_page(results[0]["id"]) if results else None
+
     def get_attachments(self, page_id: str) -> list[Attachment]:
         items = self._get_all(f"/pages/{page_id}/attachments")
         return [
@@ -164,14 +175,32 @@ class ConfluenceClient:
         resp.raise_for_status()
         return resp.content
 
-    def create_page(self, parent_id: str, title: str, body_html: str, dry_run: bool = True) -> Page:
+    def add_attachment(self, page_id: str, filename: str, data: bytes,
+                        media_type: str = "image/png", dry_run: bool = True) -> Attachment:
+        if dry_run:
+            print(f"[dry-run] would attach {filename} ({len(data)} bytes) to page {page_id}")
+            return Attachment(attachment_id="(dry-run)", title=filename, media_type=media_type,
+                               download_url="")
+        resp = self._session.post(
+            f"{self.base_url}/wiki/rest/api/content/{page_id}/child/attachment",
+            headers={"X-Atlassian-Token": "nocheck"},
+            files={"file": (filename, data, media_type)},
+        )
+        resp.raise_for_status()
+        item = resp.json()["results"][0]
+        return Attachment(attachment_id=item["id"], title=item["title"], media_type=media_type,
+                           download_url=f"{self.base_url}/wiki{item['_links']['download']}")
+
+    def create_page(self, parent_id: str | None, title: str, body_html: str,
+                     dry_run: bool = True) -> Page:
         payload = {
             "spaceId": self._space_id(),
             "status": "current",
             "title": title,
-            "parentId": parent_id,
             "body": {"representation": "storage", "value": body_html},
         }
+        if parent_id:
+            payload["parentId"] = parent_id
         if dry_run:
             print(f"[dry-run] would create page {title!r} under parent {parent_id}")
             return Page(page_id="(dry-run)", space_key=self.space_key, title=title,

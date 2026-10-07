@@ -44,6 +44,9 @@ class FakeDocumentSource:
     def get_page(self, page_id: str) -> Page:
         return self.pages[page_id]
 
+    def find_page_by_title(self, title: str) -> Page | None:
+        return next((p for p in self.pages.values() if p.title == title), None)
+
     def get_descendants(self, root_page_id: str) -> list[Page]:
         ids, stack = [], [root_page_id]
         while stack:
@@ -58,10 +61,20 @@ class FakeDocumentSource:
     def download_attachment(self, attachment: Attachment) -> bytes:
         return self.attachment_bytes.get(attachment.attachment_id, b"")
 
-    def create_page(self, parent_id: str, title: str, body_html: str, dry_run: bool = True) -> Page:
+    def add_attachment(self, page_id: str, filename: str, data: bytes,
+                        media_type: str = "image/png", dry_run: bool = True) -> Attachment:
+        attachment = Attachment(attachment_id=f"att-{len(self.attachment_bytes) + 1}",
+                                 title=filename, media_type=media_type, download_url=f"fake://{filename}")
+        if not dry_run:
+            self.attachments.setdefault(page_id, []).append(attachment)
+            self.attachment_bytes[attachment.attachment_id] = data
+        return attachment
+
+    def create_page(self, parent_id: str | None, title: str, body_html: str,
+                     dry_run: bool = True) -> Page:
         if dry_run:
             return Page(page_id="(dry-run)", space_key=self.space_key, title=title,
-                        url="", version=1, parent_path=parent_id, html=body_html)
+                        url="", version=1, parent_path=parent_id or "", html=body_html)
         return self.add_page(title, parent_id=parent_id, html=body_html)
 
     def append_to_page(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:

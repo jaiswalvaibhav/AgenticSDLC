@@ -1,0 +1,18 @@
+<h1>{{ terms.technical_design_solution }}</h1>
+<h2>Pipeline design</h2>
+<ac:image><ri:attachment ri:filename="technical_design_solution.png" /></ac:image>
+<p>An orchestrator extracts each source into {{ layers.raw }}, transforms into
+{{ layers.curated }} (applying the data quality rules from the
+{{ terms.data_design_solution }}), then publishes {{ layers.presentation }}.</p>
+<h2>Orchestration</h2>
+<p>Daily schedule, source extracts by 3am, curated transform by 4:30am, presentation
+publish by 6am local time. Failed runs retry twice with a 15-minute backoff before alerting.</p>
+<h2>Environments</h2>
+<ul>
+<li><strong>dev:</strong> sample data, manual trigger only</li>
+<li><strong>test:</strong> full dummy volumes, nightly scheduled run</li>
+<li><strong>prod:</strong> full volumes, nightly scheduled run, alerting enabled</li>
+</ul>
+<h2>Deployment</h2>
+<p>Promoted dev to test to prod via the same orchestration config, parameterised by
+environment; no environment-specific code.</p>

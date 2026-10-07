@@ -1,10 +1,13 @@
-"""sdlc CLI. `config show`, `workflow preview` and `sync` work; the rest are stubs."""
+"""sdlc CLI. `config show`, `workflow preview`, `sync` and `seed` work; the rest are stubs."""
+from pathlib import Path
+
 import typer
 
 from sdlc.adapters.confluence import ConfluenceClient
 from sdlc.adapters.local_store import LocalObjectStore
 from sdlc.config import load_config, masked
 from sdlc.confluence_sync import sync_tree
+from sdlc.seed import seed_usecase
 from sdlc.workflow.registry import WorkflowRegistry
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -31,8 +34,14 @@ def setup() -> None:
 
 
 @app.command()
-def seed(dry_run: bool = True) -> None:
-    _stub("seed", 3)
+def seed(use_case: str = typer.Option(None, "--use-case", help="defaults to config use_case"),
+          dry_run: bool = True) -> None:
+    """Seed the demo Confluence page tree + diagrams for a use case (dry-run by default)."""
+    cfg = load_config()
+    use_case = use_case or cfg["use_case"]
+    client = _confluence_client(cfg)
+    result = seed_usecase(client, Path("usecases") / use_case, dry_run=dry_run)
+    typer.echo(f"created={len(result.created)} skipped(already existed)={len(result.skipped)}")
 
 
 @app.command()

@@ -1,0 +1,26 @@
+<h1>{{ terms.data_design_solution }}</h1>
+<h2>Source-to-target mapping</h2>
+<table>
+<tbody>
+<tr><th>Source</th><th>{{ layers.raw }}</th><th>{{ layers.curated }}</th><th>{{ layers.presentation }}</th></tr>
+<tr><td>orders, order_lines</td><td>raw.orders</td><td>curated.fct_order</td><td>presentation.fulfilment_metrics</td></tr>
+<tr><td>shipments, shipment_events</td><td>raw.shipments</td><td>curated.fct_shipment</td><td>presentation.fulfilment_metrics</td></tr>
+<tr><td>customers</td><td>raw.customers</td><td>curated.dim_customer</td><td>presentation.fulfilment_metrics</td></tr>
+<tr><td>products, suppliers</td><td>raw.products</td><td>curated.dim_product</td><td>presentation.fulfilment_metrics</td></tr>
+</tbody>
+</table>
+<h2>Layers</h2>
+<ul>
+<li><strong>{{ layers.raw }}:</strong> one-to-one copy of each source extract, partitioned by load date</li>
+<li><strong>{{ layers.curated }}:</strong> conformed fact/dimension model (fct_order, fct_shipment, dim_customer, dim_product)</li>
+<li><strong>{{ layers.presentation }}:</strong> presentation.fulfilment_metrics, one row per order/day, feeding the BI dashboard</li>
+</ul>
+<h2>Data quality rules</h2>
+<ul>
+<li>order_id, shipment_id, customer_id, product_id must be non-null and unique within their source</li>
+<li>Every curated fct_shipment row must resolve to a known fct_order row (referential check)</li>
+<li>on_time_delivery_flag is null (not false) when a shipment has no delivered_at timestamp yet</li>
+</ul>
+<h2>Refresh schedule</h2>
+<p>Daily batch, sources load by 3am, curated by 4:30am, presentation published by 6am local time
+(matches SR-5).</p>

@@ -1,0 +1,12 @@
+<h1>{{ terms.source_data_analysis }}</h1>
+<table>
+<tbody>
+<tr><th>Source</th><th>Key tables</th><th>Volume (dummy)</th><th>Refresh</th></tr>
+<tr><td>Orders</td><td>orders, order_lines</td><td>~40k rows/day</td><td>Daily batch, 2am</td></tr>
+<tr><td>Shipments</td><td>shipments, shipment_events</td><td>~45k rows/day</td><td>Daily batch, 3am</td></tr>
+<tr><td>Customers</td><td>customers</td><td>~250k rows total</td><td>Daily batch, 1am</td></tr>
+<tr><td>Product Catalogue</td><td>products, suppliers</td><td>~8k rows total</td><td>Daily batch, 1am</td></tr>
+</tbody>
+</table>
+<p>All four sources key on common dummy identifiers (customer_id, order_id, product_id,
+shipment_id), enabling a conformed model without a separate identity-resolution step.</p>

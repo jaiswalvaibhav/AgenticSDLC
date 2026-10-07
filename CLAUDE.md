@@ -31,6 +31,8 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - `uv run sdlc --help`: list all commands (`make <target>` wraps them).
 - `uv run sdlc config show`: show the merged config, with secrets masked.
 - `uv run sdlc workflow preview --use-case demo_order_fulfilment --from solution_requirements [--steps data_contract]`: preview the tickets that would be created.
+- `uv run sdlc sync --root-page-id <id>`: download a Confluence tree into `.data/corpus/`.
+- `uv run sdlc seed [--use-case demo_order_fulfilment]`: create the demo Confluence pages + diagrams (dry-run by default; `--no-dry-run` to actually create them — needs real Atlassian credentials in `.env` and a `dot` binary installed for the diagrams).
 - `uv run pytest`: run the tests.
 
 ## Decisions (Phase 0)
@@ -48,5 +50,6 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
   - if all children are Done, the parent moves to Done
   - optionally, a child reopening moves a Done parent back to In Progress, with a comment; if the workflow blocks that, it only comments
 - Design pages are resolved by page ID first, then label, then title pattern. A Confluence link on a step ticket overrides all of these.
-- Demo use case: "Order Fulfilment Performance". Graphviz is a dev-only dependency.
+- Demo use case: "Order Fulfilment Performance". Graphviz is a dev-only dependency (lazily imported in `diagrams.py`, so it's never required outside `seed`).
+- Confluence attachment upload has no v2 endpoint; `ConfluenceClient.add_attachment` uses the v1 `POST /wiki/rest/api/content/{id}/child/attachment` (multipart, `X-Atlassian-Token: nocheck`).
 - Confluence sync scales to the enterprise space (~3000 docs) by design: `get_descendants` is metadata-only and `sync_tree` fetches full bodies only for new/changed pages, concurrently. Still open: verify the account's actual Confluence Cloud rate limits against the batch/worker sizes — see the docstrings in `src/sdlc/adapters/confluence.py` (`get_descendants`, `_PAGE_ID_BATCH`) and `src/sdlc/confluence_sync.py`.

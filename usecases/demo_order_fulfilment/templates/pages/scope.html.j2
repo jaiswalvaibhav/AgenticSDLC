@@ -1,0 +1,13 @@
+<h1>{{ terms.scope }}</h1>
+<h2>In scope</h2>
+<ul>
+<li>Orders, Shipments, Customers and Product Catalogue as sources</li>
+<li>{{ usecase.metrics | join(', ') }}, by region and product line</li>
+<li>Daily refresh, available by 6am local time</li>
+</ul>
+<h2>Out of scope</h2>
+<ul>
+<li>Real-time/streaming updates (daily batch only, for this iteration)</li>
+<li>Returns and refunds data</li>
+<li>Non-retail channels (wholesale, marketplace)</li>
+</ul>
