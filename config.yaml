@@ -1,0 +1,41 @@
+# Base config. Override any key with env vars SDLC__SECTION__KEY (e.g. SDLC__AWS__REGION) or in .env.
+# Secrets (API tokens) belong in .env only, never here.
+profile: local            # local: state in .state/, runs on laptop | aws: state in S3, agent on AgentCore
+use_case: demo_order_fulfilment   # folder under usecases/
+state_dir: .state
+data_dir: .data
+
+atlassian:
+  base_url: https://your-domain.atlassian.net
+  email: ""
+  api_token: ""
+
+confluence:
+  space_key: SPACE_KEY
+
+jira:
+  project_key: PROJECT_KEY
+  components: {engineer: Engineering, tester: Testing}
+  assignees: {analyst: "", engineer: "", tester: ""}   # account IDs; empty = unassigned
+  poll_interval_seconds: 300
+  approval_label: sdlc-approved
+  reject_label: sdlc-rejected
+
+orchestrator:
+  auto_start_manual_steps: true
+  reopen_parent_on_child_reopen: true
+
+aws:
+  region: ap-southeast-2
+  bucket: your-sdlc-bucket
+  docs_prefix: confluence/
+  state_prefix: state/
+  stack_prefix: sdlc
+  knowledge_base_id: ""
+  data_source_id: ""
+  kb_role_arn: ""
+  embedding_model_type: MANAGED   # MANAGED | CUSTOM
+  embedding_model_arn: ""         # only for CUSTOM
+  llm_model_id: ""                # Bedrock inference profile ID (verified in Phase 6)
+  agent_runtime_arn: ""
+  tags: {project: agentic-sdlc}

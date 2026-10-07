@@ -1,0 +1,82 @@
+# Lifecycle step registry. A use case may override this via usecases/<uc>/workflow.yaml.
+# Each step: id, owner (analyst|engineer|tester), inputs (step ids), artifact label,
+# automation (an agent task id, or null for manual work), optional (default false).
+steps:
+  - id: stakeholder_requirements
+    owner: analyst
+    inputs: []
+    artifact: Stakeholder Requirements
+    automation: null
+
+  - id: scope
+    owner: analyst
+    inputs: [stakeholder_requirements]
+    artifact: Scope
+    automation: null
+
+  - id: conceptual_data_model
+    owner: analyst
+    inputs: [stakeholder_requirements, scope]
+    artifact: Conceptual Data Model
+    automation: null
+
+  - id: solution_architecture
+    owner: analyst
+    inputs: [stakeholder_requirements, scope, conceptual_data_model]
+    artifact: Solution Architecture
+    automation: null
+
+  - id: data_design_solution
+    owner: analyst
+    inputs: [stakeholder_requirements, scope, conceptual_data_model, solution_architecture]
+    artifact: Data Design Solution
+    automation: null  # future agent task
+
+  - id: technical_design_solution
+    owner: engineer
+    inputs: [stakeholder_requirements, scope, conceptual_data_model, solution_architecture]
+    artifact: Technical Design Solution
+    automation: null
+
+  - id: solution_requirements
+    owner: analyst
+    inputs: [data_design_solution, technical_design_solution]
+    artifact: Solution Requirements
+    automation: analyst.solution_requirements
+
+  - id: data_contract
+    owner: analyst
+    inputs: [data_design_solution]
+    artifact: Data Contract
+    automation: null  # future agent task
+    optional: true
+
+  - id: test_case_specification
+    owner: tester
+    inputs: [data_design_solution, technical_design_solution]
+    artifact: Test Case Specification
+    automation: null
+
+  - id: data_solution_development
+    owner: engineer
+    inputs: [solution_requirements]
+    artifact: Data Solution Development
+    automation: null
+
+  - id: test_automation
+    owner: tester
+    inputs: [test_case_specification]
+    artifact: Test Automation
+    automation: null
+
+  - id: test_solution_report
+    owner: tester
+    inputs: [data_solution_development, test_automation]
+    artifact: Test Solution Report
+    automation: null
+
+  - id: solution_deployment
+    owner: engineer
+    inputs: [test_solution_report]
+    artifact: Solution Deployment
+    automation: null
