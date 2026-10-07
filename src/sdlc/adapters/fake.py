@@ -1,5 +1,7 @@
 """In-memory fakes for every port, for tests (no AWS/Jira/Confluence network needed)."""
-from sdlc.ports import Attachment, Chunk, Issue, Page, StatusEvent
+import re
+
+from sdlc.ports import Attachment, Chunk, Issue, Page, StatusEvent, TransitionNotAvailable
 
 
 class FakeDocumentSource:
@@ -90,6 +92,11 @@ class FakeTicketSystem:
         self.issues: dict[str, Issue] = {}
         self._next_num = 1
         self.events: list[StatusEvent] = []
+        self.comments: dict[str, list[str]] = {}
+        self.links: list[tuple[str, str, str]] = []  # (inward, outward, type)
+        self.remote_links: dict[str, list[tuple[str, str]]] = {}  # key -> [(url, title)]
+        self.artifacts: set[str] = set()  # issue keys treated as having an artifact
+        self.blocked_transitions: set[tuple[str, str, str]] = set()  # (key, from_status, to_status)
 
     def create_issue(self, issue_type, summary, *, parent_key=None, description="",
                       labels=None, assignee=None, component=None, dry_run=True) -> Issue:
@@ -108,21 +115,46 @@ class FakeTicketSystem:
         return next((i for i in self.issues.values() if label in i.labels), None)
 
     def transition_issue(self, key: str, status_name: str, dry_run: bool = True) -> None:
+        issue = self.issues[key]
+        if (key, issue.status, status_name) in self.blocked_transitions:
+            raise TransitionNotAvailable(f"{key}: {issue.status} -> {status_name} is blocked")
         if dry_run:
             return
-        issue = self.issues[key]
         self.events.append(StatusEvent(key, issue.status, status_name))
         issue.status = status_name
 
     def add_comment(self, key: str, body: str, dry_run: bool = True) -> None:
-        pass
+        if not dry_run:
+            self.comments.setdefault(key, []).append(body)
 
     def add_label(self, key: str, label: str, dry_run: bool = True) -> None:
         if not dry_run:
             self.issues[key].labels.append(label)
 
     def search(self, jql: str) -> list[Issue]:
-        return list(self.issues.values())
+        """Minimal JQL matcher covering only the clauses this project's own code emits
+        (parent =, labels =) — not a general JQL parser."""
+        issues = list(self.issues.values())
+        if (m := re.search(r'parent\s*=\s*"([^"]+)"', jql)):
+            issues = [i for i in issues if i.parent_key == m.group(1)]
+        if (m := re.search(r'labels\s*=\s*"([^"]+)"', jql)):
+            issues = [i for i in issues if m.group(1) in i.labels]
+        return issues
+
+    def link_issues(self, inward_key: str, outward_key: str, link_type: str = "Blocks",
+                     dry_run: bool = True) -> None:
+        if not dry_run:
+            self.links.append((inward_key, outward_key, link_type))
+
+    def add_remote_link(self, key: str, url: str, title: str, dry_run: bool = True) -> None:
+        if not dry_run:
+            self.remote_links.setdefault(key, []).append((url, title))
+
+    def has_artifact(self, key: str) -> bool:
+        return key in self.artifacts
+
+    def status_changes_since(self, key: str, since: str) -> list[StatusEvent]:
+        return [e for e in self.events if e.issue_key == key]
 
 
 class FakeObjectStore:

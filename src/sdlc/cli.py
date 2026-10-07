@@ -5,6 +5,9 @@ import typer
 
 from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
 from sdlc.adapters.confluence import ConfluenceClient
+from sdlc.adapters.fake import FakeAgentRuntime
+from sdlc.adapters.jira import JiraClient
+from sdlc.adapters.jira_polling import PollingStatusSource
 from sdlc.adapters.local_store import LocalObjectStore
 from sdlc.aws import deploy as aws_deploy_mod
 from sdlc.aws import destroy as aws_destroy_mod
@@ -12,6 +15,7 @@ from sdlc.aws_sync import aws_sync as run_aws_sync
 from sdlc.config import load_config, masked
 from sdlc.confluence_sync import sync_tree
 from sdlc.seed import seed_usecase
+from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import WorkflowRegistry
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -29,6 +33,14 @@ def _confluence_client(cfg: dict) -> ConfluenceClient:
     return ConfluenceClient(
         base_url=atlassian["base_url"], email=atlassian["email"],
         api_token=atlassian["api_token"], space_key=cfg["confluence"]["space_key"],
+    )
+
+
+def _jira_client(cfg: dict) -> JiraClient:
+    atlassian = cfg["atlassian"]
+    return JiraClient(
+        base_url=atlassian["base_url"], email=atlassian["email"],
+        api_token=atlassian["api_token"], project_key=cfg["jira"]["project_key"],
     )
 
 
@@ -83,14 +95,38 @@ def analyst_apply() -> None:
     _stub("analyst-apply", 6)
 
 
+def _sync_once(cfg: dict, *, dry_run: bool) -> None:
+    tickets = _jira_client(cfg)
+    store = LocalObjectStore(cfg["state_dir"])
+    registry = WorkflowRegistry.load()
+    agent = FakeAgentRuntime()  # real AgentRuntime wiring lands in Phase 6/7
+    status_source = PollingStatusSource(tickets, store, cfg["jira"]["project_key"])
+
+    events = status_source.poll(dry_run=dry_run)
+    for event in events:
+        orchestrator.handle_status_change(event, tickets=tickets, store=store, cfg=cfg,
+                                           registry=registry, agent=agent, dry_run=dry_run)
+    acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg,
+                                         use_case=cfg["use_case"], dry_run=dry_run)
+    typer.echo(f"status events: {len(events)}, approvals/rejections acted on: {acted}")
+
+
 @app.command(name="sync-progress")
 def sync_progress(dry_run: bool = True) -> None:
-    _stub("sync-progress", 5)
+    """One-shot: poll Jira for status changes, run rollup + step readiness, and check
+    any steps awaiting the approval/reject label."""
+    _sync_once(load_config(), dry_run=dry_run)
 
 
 @app.command(name="watch-progress")
-def watch_progress() -> None:
-    _stub("watch-progress", 5)
+def watch_progress(dry_run: bool = True) -> None:
+    """Loop sync-progress forever, every jira.poll_interval_seconds."""
+    import time
+    cfg = load_config()
+    interval = cfg["jira"]["poll_interval_seconds"]
+    while True:
+        _sync_once(cfg, dry_run=dry_run)
+        time.sleep(interval)
 
 
 @app.command(name="aws-deploy")
@@ -156,7 +192,19 @@ def workflow_start(
     steps: str | None = typer.Option(None, "--steps"),
     apply: bool = typer.Option(False, "--apply"),
 ) -> None:
-    _stub("workflow start", 5)
+    """Create the use-case epic + step tickets (dry-run unless --apply)."""
+    cfg = load_config()
+    registry = WorkflowRegistry.load()
+    tickets = _jira_client(cfg)
+    store = LocalObjectStore(cfg["state_dir"])
+    step_list = [s.strip() for s in steps.split(",")] if steps else None
+
+    steps_map = orchestrator.workflow_start(
+        tickets=tickets, store=store, registry=registry, cfg=cfg, use_case=use_case,
+        from_step=from_step, steps=step_list, dry_run=not apply,
+    )
+    for step_id, key in steps_map.items():
+        typer.echo(f"  {step_id}: {key}")
 
 
 if __name__ == "__main__":

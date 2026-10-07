@@ -23,7 +23,7 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
   2. WeasyPrint renders each page to `<pageId>.pdf`, written with `<pageId>.pdf.metadata.json` to S3.
   3. Ingestion into the Managed KB.
   4. Our own `search_knowledge` tool calls Retrieve with `managedSearchConfiguration` and a `use_case` filter.
-- **Workflow**: `config/workflow.yaml` lists the lifecycle steps. There is one Jira epic per use case and one Story per selected step. `handle_status_change()` performs rollup, starts steps whose inputs are ready, and runs automated steps through the agent. Agent plans need the `sdlc-approved` label before they are applied.
+- **Workflow**: `config/workflow.yaml` lists the lifecycle steps. `workflow start` creates one Jira epic per use case and one Story per selected step (idempotent via stable marker labels), linked with "Blocks". `orchestrator.handle_status_change()` is the one handler every status event goes through: rollup (Sub-task → Story → Epic), then — if the issue just reached Done and is a step — checks downstream steps' inputs (Done + has an artifact) and starts whichever became ready, running automated steps through `AgentRuntime` (faked until Phase 6). `orchestrator.check_approvals()` is polled separately (a label add isn't a status change) for the `sdlc-approved`/`sdlc-rejected` labels.
 - **Use cases**: `usecases/<name>/` holds the config, terminology, page roles and templates for that use case. Adding a use case needs no code changes.
 
 ## Commands
@@ -37,6 +37,8 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - `uv run sdlc aws-sync`: render changed pages to PDF, sync them + `.metadata.json` to S3, run and poll a Knowledge Base ingestion job.
 - `uv run sdlc search "<query>"`: Retrieve against the Managed KB, scoped to `use_case`.
 - `uv run sdlc aws-destroy`: delete everything `aws-deploy` recorded in `infra/aws/.ledger.json`, in reverse order.
+- `uv run sdlc workflow start --use-case demo_order_fulfilment [--from solution_requirements] [--apply]`: create the epic + step tickets.
+- `uv run sdlc sync-progress` / `watch-progress`: one-shot / looping poll of Jira status changes → rollup + readiness + approval check.
 - `uv run pytest`: run the tests.
 
 ## Decisions (Phase 0)
@@ -61,3 +63,6 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - `aws_sync.py` gates PDF re-rendering on the Confluence page `version` already tracked by `confluence_sync` (not by re-rendering every page's PDF to hash-compare) — same scaling principle as the Confluence sync fix above.
 - IAM for the KB service role is defined directly in the CloudFormation template (`infra/aws/templates/storage.yaml`), not as separate `infra/aws/policies/*.json` files — CloudFormation is the single source of truth for it, since BRIEF.md's original CLI-only IAM approach was superseded by the Phase 0 decision to prefer CloudFormation.
 - `aws-deploy`/`aws-sync`/`aws-destroy` were tested dry-run against a real AWS account (list/describe calls only — no resources were created). boto3's SSO/"login" credential provider needed the `botocore[crt]` extra in this environment; added as a dependency since this is a real, not-invented, AWS SDK requirement.
+- Jira search moved to `/rest/api/3/search/jql` (the old `/rest/api/3/search` is fully removed); it can't `expand=changelog`, so `JiraClient.status_changes_since` uses the dedicated `GET /issue/{key}/changelog` endpoint instead, called only for issues a cheap `updated >=` search already flagged as changed.
+- **Not fully doc-verified this session** (the Atlassian docs pages kept truncating on fetch): the exact changelog response field names (`values`/`items`/`fromString`/`toString`) in `adapters/jira.py`. Used the long-standing, widely-documented Jira Cloud shape, flagged in the code — check it against a real response from your instance before relying on it.
+- **Needs your confirmation**: rollup (`orchestrator._rollup`) queries children via JQL `parent = <key>` uniformly for Sub-task → Story → Epic. That's correct for a **team-managed** Jira project; a **company-managed** project uses a separate "Epic Link" field for Story → Epic instead, which would need a different JQL clause. Tell me which your "AgenticSDLC" project is.
