@@ -1,9 +1,11 @@
 """Analyst task registry: each task declares its anchors, retrieval scope and outputs,
-so a future task (e.g. data_contract) can be added without changing the orchestrator.
-Task bodies are implemented in Phase 6 (Strands + Bedrock Claude); this is the registry only.
+so a future task (e.g. data_contract) can be added without changing the orchestrator
+or AgentRuntime — just register another AnalystTask here.
 """
 from dataclasses import dataclass, field
 from typing import Callable
+
+from sdlc.agents.analyst.engine import run_solution_requirements
 
 
 @dataclass(frozen=True)
@@ -15,7 +17,7 @@ class AnalystTask:
     outputs: tuple[str, ...]
     upstream: tuple[str, ...] = field(default_factory=tuple)
     downstream: tuple[str, ...] = field(default_factory=tuple)
-    run: Callable[[dict], dict] | None = None  # set in Phase 6
+    run: Callable[..., dict] | None = None
 
 
 TASKS: dict[str, AnalystTask] = {}
@@ -35,4 +37,5 @@ register(AnalystTask(
     outputs=("jira_epic_stories_subtasks", "plan_file"),
     upstream=("data_design_solution", "technical_design_solution"),
     downstream=("data_contract", "test_case_specification"),
+    run=run_solution_requirements,
 ))

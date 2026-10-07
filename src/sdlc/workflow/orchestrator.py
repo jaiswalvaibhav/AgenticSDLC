@@ -138,7 +138,8 @@ def _start_step(step: Step, *, steps_map: dict, tickets: TicketSystem, store: Ob
             return
 
     if step.automation:
-        agent.run(step.automation, {"use_case": use_case, "step_id": step.id, "issue_key": key})
+        agent.run(step.automation, {"use_case": use_case, "step_id": step.id,
+                                     "issue_key": key, "dry_run": dry_run})
         run_state = _run_state(store, use_case)
         run_state[step.id] = "awaiting_approval"
         _save_run_state(store, use_case, run_state, dry_run)
@@ -179,12 +180,57 @@ def handle_status_change(event: StatusEvent, *, tickets: TicketSystem, store: Ob
 
 
 # ----------------------------------------------------------------- approval --
-def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, done_status: str,
-                dry_run: bool) -> None:
-    """Stub for Phase 5 ('agent faked'): Phase 6 replaces this with real requirement
-    Story/Sub-task creation from the agent's plan.json, linked and labelled per step."""
-    tickets.add_comment(issue_key, "Plan approved (apply is stubbed until Phase 6 — "
-                                     "no requirement tickets created yet).", dry_run=dry_run)
+def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: ObjectStore,
+                use_case: str, cfg: dict, done_status: str, dry_run: bool) -> None:
+    """Creates one Story per requirement in the stored plan.json (under the use-case
+    epic, labelled ws:<workstream>), each with Engineering + Testing Sub-tasks, linked
+    to the data_solution_development step. Idempotent via a per-requirement marker
+    label. Records traceability (requirement -> DDS/TDS section -> stakeholder
+    requirement) in traceability.json and the Jira issue itself (description)."""
+    plan = store.get_json(f"workflow/{use_case}/plan.json")
+    if not plan:
+        tickets.add_comment(issue_key, "No plan found to apply.", dry_run=dry_run)
+        return
+
+    epic = tickets.find_issue_by_label(f"sdlc-epic:{use_case}")
+    steps_map = _steps_map(store, use_case)
+    dsd_key = steps_map.get("data_solution_development")
+    traceability = store.get_json(f"workflow/{use_case}/traceability.json") or {"records": []}
+    created_keys = []
+
+    for req in plan["requirements"]:
+        marker = f"req-marker:{use_case}:{req['requirement_id']}"
+        existing = tickets.find_issue_by_label(marker)
+        if existing:
+            created_keys.append(existing.key)
+            continue
+
+        ac_text = "\n".join(f"- {c}" for c in req["acceptance_criteria"])
+        description = (f"{req['description']}\n\nAcceptance criteria:\n{ac_text}\n\n"
+                        f"Source: {req['source_doc']} § {req['source_section']}")
+        story = tickets.create_issue(
+            "Story", req["title"], parent_key=epic.key if epic else None, description=description,
+            labels=[f"uc:{use_case}", f"ws:{req['workstream']}", marker], dry_run=dry_run,
+        )
+        tickets.create_issue("Sub-task", f"[Engineering] {req['title']}", parent_key=story.key,
+                              component=cfg["jira"]["components"].get("engineer"),
+                              assignee=cfg["jira"]["assignees"].get("engineer") or None, dry_run=dry_run)
+        tickets.create_issue("Sub-task", f"[Testing] {req['title']}", parent_key=story.key,
+                              component=cfg["jira"]["components"].get("tester"),
+                              assignee=cfg["jira"]["assignees"].get("tester") or None, dry_run=dry_run)
+        if dsd_key:
+            tickets.link_issues(story.key, dsd_key, "Blocks", dry_run=dry_run)
+
+        traceability["records"].append({
+            "requirement_id": req["requirement_id"], "jira_key": story.key,
+            "source_doc": req["source_doc"], "source_section": req["source_section"],
+            "stakeholder_requirement_ids": req["stakeholder_requirement_ids"],
+        })
+        created_keys.append(story.key)
+
+    store.put_json(f"workflow/{use_case}/traceability.json", traceability, dry_run=dry_run)
+    tickets.add_comment(issue_key, f"Applied: {len(created_keys)} requirement stories "
+                                     f"({', '.join(created_keys)}).", dry_run=dry_run)
     tickets.transition_issue(issue_key, done_status, dry_run=dry_run)
 
 
@@ -206,7 +252,8 @@ def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use
             continue
         issue = tickets.get_issue(key)
         if cfg["jira"]["approval_label"] in issue.labels:
-            apply_plan(step_id, key, tickets=tickets, done_status=statuses["done"], dry_run=dry_run)
+            apply_plan(step_id, key, tickets=tickets, store=store, use_case=use_case, cfg=cfg,
+                       done_status=statuses["done"], dry_run=dry_run)
             run_state[step_id] = "applied"
             acted.append(step_id)
         elif cfg["jira"]["reject_label"] in issue.labels:

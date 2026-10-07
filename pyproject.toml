@@ -5,12 +5,15 @@ description = "Autonomous Data SDLC: Jira-driven workflow orchestrator and analy
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "beautifulsoup4",
     "boto3",
     "botocore[crt]>=1.43.108",
     "jinja2",
+    "pydantic",
     "python-dotenv",
     "pyyaml",
     "requests",
+    "strands-agents",
     "typer",
     "weasyprint",  # needs system Pango/Cairo/GDK-Pixbuf; see src/sdlc/pdf.py
 ]

@@ -156,7 +156,7 @@ Configuration: config.yaml with environment-variable overrides, plus a profile s
 4. AWS knowledge: CloudFormation (S3, IAM), Managed KB, WeasyPrint PDFs + metadata, `aws-sync`, `search`
 5. Jira client, workflow start, transitions, progress polling, rollup, step orchestration, label approval
 6. Analyst agent: plan, approve, apply, traceability
-7. AgentCore runtime, scheduled orchestrator, resource ledger, destroy
+7. AgentCore runtime, scheduled orchestrator, resource ledger, destroy, Jira issue-property traceability
 8. Docs, tests, cleanup
 
 ## Phase 0 answers (summary)

@@ -5,10 +5,11 @@ import typer
 
 from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
 from sdlc.adapters.confluence import ConfluenceClient
-from sdlc.adapters.fake import FakeAgentRuntime
 from sdlc.adapters.jira import JiraClient
 from sdlc.adapters.jira_polling import PollingStatusSource
 from sdlc.adapters.local_store import LocalObjectStore
+from sdlc.agents.analyst.tasks import TASKS
+from sdlc.agents.runtime import LocalAgentRuntime
 from sdlc.aws import deploy as aws_deploy_mod
 from sdlc.aws import destroy as aws_destroy_mod
 from sdlc.aws_sync import aws_sync as run_aws_sync
@@ -85,21 +86,67 @@ def search(query: str, top_k: int = 10) -> None:
         typer.echo(f"    s3: {chunk.s3_uri}\n")
 
 
+def _knowledge_index(cfg: dict) -> BedrockKnowledgeIndex:
+    return BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["knowledge_base_id"], region=cfg["aws"]["region"])
+
+
+def _agent_runtime(cfg: dict, tickets: JiraClient, store: LocalObjectStore) -> LocalAgentRuntime:
+    return LocalAgentRuntime(doc_source=_confluence_client(cfg), knowledge_index=_knowledge_index(cfg),
+                              tickets=tickets, store=store, cfg=cfg)
+
+
 @app.command(name="analyst-plan")
-def analyst_plan() -> None:
-    _stub("analyst-plan", 6)
+def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
+                  step: str = typer.Option("solution_requirements", "--step"),
+                  dry_run: bool = True) -> None:
+    """Manually run an analyst task's plan generation for a step (bypasses the
+    orchestrator's readiness gating — useful to test/regenerate without Jira events)."""
+    cfg = load_config()
+    use_case = use_case or cfg["use_case"]
+    tickets = _jira_client(cfg)
+    store = LocalObjectStore(cfg["state_dir"])
+    task = TASKS.get(step)
+    if not task:
+        typer.echo(f"no analyst task registered for step {step!r}")
+        raise typer.Exit(code=1)
+
+    steps_map = store.get_json(f"workflow/{use_case}/steps.json") or {}
+    issue_key = steps_map.get(step)
+    if not issue_key:
+        typer.echo(f"no ticket for step {step!r} yet — run `workflow start` first")
+        raise typer.Exit(code=1)
+
+    result = _agent_runtime(cfg, tickets, store).run(
+        task.id, {"use_case": use_case, "step_id": step, "issue_key": issue_key, "dry_run": dry_run})
+    typer.echo(result)
 
 
 @app.command(name="analyst-apply")
-def analyst_apply() -> None:
-    _stub("analyst-apply", 6)
+def analyst_apply(use_case: str = typer.Option(None, "--use-case"),
+                   step: str = typer.Option("solution_requirements", "--step"),
+                   dry_run: bool = True) -> None:
+    """Manually apply a stored plan.json for a step (bypasses the sdlc-approved label
+    check — the same real work orchestrator.check_approvals does automatically)."""
+    cfg = load_config()
+    use_case = use_case or cfg["use_case"]
+    tickets = _jira_client(cfg)
+    store = LocalObjectStore(cfg["state_dir"])
+    statuses = orchestrator.load_terminology(use_case)["statuses"]
+    steps_map = store.get_json(f"workflow/{use_case}/steps.json") or {}
+    issue_key = steps_map.get(step)
+    if not issue_key:
+        typer.echo(f"no ticket for step {step!r} yet — run `workflow start` first")
+        raise typer.Exit(code=1)
+
+    orchestrator.apply_plan(step, issue_key, tickets=tickets, store=store, use_case=use_case,
+                             cfg=cfg, done_status=statuses["done"], dry_run=dry_run)
 
 
 def _sync_once(cfg: dict, *, dry_run: bool) -> None:
     tickets = _jira_client(cfg)
     store = LocalObjectStore(cfg["state_dir"])
     registry = WorkflowRegistry.load()
-    agent = FakeAgentRuntime()  # real AgentRuntime wiring lands in Phase 6/7
+    agent = _agent_runtime(cfg, tickets, store)
     status_source = PollingStatusSource(tickets, store, cfg["jira"]["project_key"])
 
     events = status_source.poll(dry_run=dry_run)

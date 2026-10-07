@@ -135,7 +135,8 @@ def test_downstream_step_starts_once_input_is_done_with_artifact(tickets, store,
                                        registry=registry, agent=agent, dry_run=False)
 
     assert tickets.get_issue(b_key).status == STATUSES["in_progress"]
-    assert agent.calls == [("analyst.b", {"use_case": UC, "step_id": "b", "issue_key": b_key})]
+    assert agent.calls == [("analyst.b", {"use_case": UC, "step_id": "b", "issue_key": b_key,
+                                           "dry_run": False})]
     run_state = store.get_json(f"workflow/{UC}/run_state.json")
     assert run_state["b"] == "awaiting_approval"
 
@@ -155,17 +156,38 @@ def test_downstream_step_waits_without_artifact(tickets, store, cfg, registry, m
 
 
 # ------------------------------------------------------------------- approval --
+_SAMPLE_PLAN = {
+    "use_case": UC,
+    "summary": "Three requirements across two workstreams.",
+    "requirements": [
+        {"requirement_id": "REQ-1", "workstream": "raw_ingestion", "title": "Ingest Orders",
+         "description": "Land Orders daily.", "acceptance_criteria": ["Orders land by 3am"],
+         "source_doc": "data_design_solution", "source_section": "Layers",
+         "stakeholder_requirement_ids": ["SR-1"]},
+    ],
+}
+
+
 def test_check_approvals_applies_on_label(tickets, store, cfg):
     key = _step_issue(tickets, store, UC, "b")
     tickets.transition_issue(key, STATUSES["in_progress"], dry_run=False)
     store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
+    store.put_json(f"workflow/{UC}/plan.json", _SAMPLE_PLAN, dry_run=False)
     tickets.add_label(key, cfg["jira"]["approval_label"], dry_run=False)
+    tickets.create_issue("Epic", "Epic", labels=[f"sdlc-epic:{UC}"], dry_run=False)
 
     acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False)
 
     assert acted == ["b"]
     assert tickets.get_issue(key).status == STATUSES["done"]
     assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "applied"
+    story = next(i for i in tickets.issues.values() if i.summary == "Ingest Orders")
+    assert "ws:raw_ingestion" in story.labels
+    subtasks = [i for i in tickets.issues.values() if i.parent_key == story.key]
+    assert {s.summary for s in subtasks} == {"[Engineering] Ingest Orders", "[Testing] Ingest Orders"}
+    traceability = store.get_json(f"workflow/{UC}/traceability.json")
+    assert traceability["records"][0]["requirement_id"] == "REQ-1"
+    assert traceability["records"][0]["jira_key"] == story.key
 
 
 def test_check_approvals_regenerates_on_reject(tickets, store, cfg):
