@@ -3,8 +3,12 @@ from pathlib import Path
 
 import typer
 
+from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
 from sdlc.adapters.confluence import ConfluenceClient
 from sdlc.adapters.local_store import LocalObjectStore
+from sdlc.aws import deploy as aws_deploy_mod
+from sdlc.aws import destroy as aws_destroy_mod
+from sdlc.aws_sync import aws_sync as run_aws_sync
 from sdlc.config import load_config, masked
 from sdlc.confluence_sync import sync_tree
 from sdlc.seed import seed_usecase
@@ -58,8 +62,15 @@ def sync(root_page_id: str = typer.Option(..., "--root-page-id", help="Confluenc
 
 
 @app.command()
-def search(query: str) -> None:
-    _stub("search", 4)
+def search(query: str, top_k: int = 10) -> None:
+    """Search the Managed Knowledge Base, scoped to the configured use case."""
+    cfg = load_config()
+    index = BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["knowledge_base_id"],
+                                   region=cfg["aws"]["region"])
+    for chunk in index.search(query, use_case=cfg["use_case"], top_k=top_k):
+        typer.echo(f"[{chunk.score:.3f}] {chunk.page_title}  ({chunk.page_url})")
+        typer.echo(f"    {chunk.text[:300]}")
+        typer.echo(f"    s3: {chunk.s3_uri}\n")
 
 
 @app.command(name="analyst-plan")
@@ -84,17 +95,24 @@ def watch_progress() -> None:
 
 @app.command(name="aws-deploy")
 def aws_deploy(dry_run: bool = True) -> None:
-    _stub("aws-deploy", 4)
+    """Deploy the storage stack (CloudFormation) + Managed Knowledge Base + data
+    source (CLI step), and write the resolved ids back into config.yaml."""
+    aws_deploy_mod.deploy(load_config(), dry_run=dry_run)
 
 
 @app.command(name="aws-sync")
 def aws_sync(dry_run: bool = True) -> None:
-    _stub("aws-sync", 4)
+    """Render changed pages' PDFs, sync them to S3, and run a Knowledge Base ingestion."""
+    result = run_aws_sync(load_config(), dry_run=dry_run)
+    typer.echo(f"uploaded={len(result.uploaded)} deleted={len(result.deleted)} "
+               f"ingestion_job={result.ingestion_job_id} status={result.ingestion_status}")
 
 
 @app.command(name="aws-destroy")
 def aws_destroy(dry_run: bool = True) -> None:
-    _stub("aws-destroy", 7)
+    """Delete exactly what aws-deploy created (and, from Phase 7, AgentCore), in
+    reverse order, from the resource ledger."""
+    aws_destroy_mod.destroy(load_config(), dry_run=dry_run)
 
 
 config_app = typer.Typer(no_args_is_help=True)

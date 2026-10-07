@@ -108,16 +108,20 @@ def _fetch_and_write(doc_source: DocumentSource, to_fetch: list[tuple[Page, Path
         full = doc_source.get_page(meta.page_id)  # the one full-body fetch, only here
         page_dir.mkdir(parents=True, exist_ok=True)
         (page_dir / "page.html").write_text(full.html)
-        (page_dir / "meta.json").write_text(json.dumps({
-            "pageId": full.page_id, "spaceKey": full.space_key, "title": meta.title,
-            "parentPath": meta.parent_path, "url": full.url, "version": meta.version,
-        }, indent=2))
 
         attachments_dir = page_dir / "_attachments"
+        attachment_names = []
         for attachment in doc_source.get_attachments(meta.page_id):
             attachments_dir.mkdir(parents=True, exist_ok=True)
             data = doc_source.download_attachment(attachment)
             (attachments_dir / attachment.title).write_bytes(data)
+            attachment_names.append(attachment.title)
+
+        (page_dir / "meta.json").write_text(json.dumps({
+            "pageId": full.page_id, "spaceKey": full.space_key, "title": meta.title,
+            "parentPath": meta.parent_path, "url": full.url, "version": meta.version,
+            "attachments": attachment_names,  # lets pdf.py resolve <img> src locally
+        }, indent=2))
 
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
         # list(...) surfaces any worker exception here instead of swallowing it.

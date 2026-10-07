@@ -33,6 +33,10 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - `uv run sdlc workflow preview --use-case demo_order_fulfilment --from solution_requirements [--steps data_contract]`: preview the tickets that would be created.
 - `uv run sdlc sync --root-page-id <id>`: download a Confluence tree into `.data/corpus/`.
 - `uv run sdlc seed [--use-case demo_order_fulfilment]`: create the demo Confluence pages + diagrams (dry-run by default; `--no-dry-run` to actually create them — needs real Atlassian credentials in `.env` and a `dot` binary installed for the diagrams).
+- `uv run sdlc aws-deploy`: deploy the storage stack (CloudFormation: S3 bucket + KB service role) and create the Managed Knowledge Base + data source (CLI step). Writes `knowledge_base_id`/`data_source_id`/`kb_role_arn` back into `config.yaml`.
+- `uv run sdlc aws-sync`: render changed pages to PDF, sync them + `.metadata.json` to S3, run and poll a Knowledge Base ingestion job.
+- `uv run sdlc search "<query>"`: Retrieve against the Managed KB, scoped to `use_case`.
+- `uv run sdlc aws-destroy`: delete everything `aws-deploy` recorded in `infra/aws/.ledger.json`, in reverse order.
 - `uv run pytest`: run the tests.
 
 ## Decisions (Phase 0)
@@ -53,3 +57,7 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - Demo use case: "Order Fulfilment Performance". Graphviz is a dev-only dependency (lazily imported in `diagrams.py`, so it's never required outside `seed`).
 - Confluence attachment upload has no v2 endpoint; `ConfluenceClient.add_attachment` uses the v1 `POST /wiki/rest/api/content/{id}/child/attachment` (multipart, `X-Atlassian-Token: nocheck`).
 - Confluence sync scales to the enterprise space (~3000 docs) by design: `get_descendants` is metadata-only and `sync_tree` fetches full bodies only for new/changed pages, concurrently. Still open: verify the account's actual Confluence Cloud rate limits against the batch/worker sizes — see the docstrings in `src/sdlc/adapters/confluence.py` (`get_descendants`, `_PAGE_ID_BATCH`) and `src/sdlc/confluence_sync.py`.
+- WeasyPrint is a core dependency (not dev-only): both profiles need `aws-sync` for Knowledge Base ingestion. It turned out to need no system libraries on this machine (pure-Python rendering worked without `brew install pango`) — if that's not true elsewhere, document the system requirement where it's actually needed.
+- `aws_sync.py` gates PDF re-rendering on the Confluence page `version` already tracked by `confluence_sync` (not by re-rendering every page's PDF to hash-compare) — same scaling principle as the Confluence sync fix above.
+- IAM for the KB service role is defined directly in the CloudFormation template (`infra/aws/templates/storage.yaml`), not as separate `infra/aws/policies/*.json` files — CloudFormation is the single source of truth for it, since BRIEF.md's original CLI-only IAM approach was superseded by the Phase 0 decision to prefer CloudFormation.
+- `aws-deploy`/`aws-sync`/`aws-destroy` were tested dry-run against a real AWS account (list/describe calls only — no resources were created). boto3's SSO/"login" credential provider needed the `botocore[crt]` extra in this environment; added as a dependency since this is a real, not-invented, AWS SDK requirement.

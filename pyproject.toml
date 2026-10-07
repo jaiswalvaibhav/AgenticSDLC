@@ -6,11 +6,13 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "boto3",
+    "botocore[crt]>=1.43.108",
     "jinja2",
     "python-dotenv",
     "pyyaml",
     "requests",
     "typer",
+    "weasyprint",  # needs system Pango/Cairo/GDK-Pixbuf; see src/sdlc/pdf.py
 ]
 
 [project.scripts]

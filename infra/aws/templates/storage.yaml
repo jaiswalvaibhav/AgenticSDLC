@@ -1,0 +1,87 @@
+# Storage stack: the S3 bucket that holds rendered PDFs + .metadata.json sidecars and
+# the ObjectStore "state/" prefix (profile=aws), plus the IAM role the Managed Knowledge
+# Base assumes to read from it. Deployed with `aws cloudformation deploy` (see
+# src/sdlc/aws/cfn.py). Permissions verified against
+# developer.aws.../bedrock/.../kb-managed-permissions.html (Oct 2026).
+#
+# NOT in this stack: the Knowledge Base and its data source. A Managed KB with
+# embeddingModelType=MANAGED reportedly can't be created via CloudFormation (schema
+# conflict) — see CLAUDE.md. They're created by an idempotent CLI step instead
+# (src/sdlc/aws/kb.py), using the DocsBucket and KBServiceRole this stack outputs.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Autonomous Data SDLC - storage bucket + Knowledge Base service role
+
+Parameters:
+  BucketName:
+    Type: String
+  ProjectTag:
+    Type: String
+    Default: agentic-sdlc
+
+Resources:
+  DocsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      Tags:
+        - Key: project
+          Value: !Ref ProjectTag
+
+  KBServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*"
+      Policies:
+        - PolicyName: S3DataSourceAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3ListBucketStatement
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DocsBucket.Arn
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+              - Sid: S3GetObjectStatement
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${DocsBucket.Arn}/*"
+                Condition:
+                  StringEquals:
+                    aws:ResourceAccount: !Ref AWS::AccountId
+        - PolicyName: BedrockModelAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:ListFoundationModels
+                  - bedrock:ListCustomModels
+                Resource: "*"
+              - Effect: Allow
+                Action: bedrock:InvokeModel
+                Resource:
+                  - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0"
+      Tags:
+        - Key: project
+          Value: !Ref ProjectTag
+
+Outputs:
+  BucketName:
+    Value: !Ref DocsBucket
+  BucketArn:
+    Value: !GetAtt DocsBucket.Arn
+  KBServiceRoleArn:
+    Value: !GetAtt KBServiceRole.Arn
