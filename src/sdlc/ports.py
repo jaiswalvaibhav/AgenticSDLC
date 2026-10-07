@@ -16,6 +16,15 @@ class Page:
 
 
 @dataclass
+class Attachment:
+    attachment_id: str
+    title: str
+    media_type: str
+    download_url: str
+    file_size: int = 0
+
+
+@dataclass
 class Issue:
     key: str
     issue_type: str  # Epic | Story | Sub-task
@@ -49,6 +58,8 @@ class DocumentSource(Protocol):
 
     def get_page(self, page_id: str) -> Page: ...
     def get_descendants(self, root_page_id: str) -> list[Page]: ...
+    def get_attachments(self, page_id: str) -> list[Attachment]: ...
+    def download_attachment(self, attachment: Attachment) -> bytes: ...
     def create_page(self, parent_id: str, title: str, body_html: str, dry_run: bool = True) -> Page: ...
     def append_to_page(self, page_id: str, body_html: str, dry_run: bool = True) -> Page: ...
 

@@ -1,7 +1,10 @@
-"""sdlc CLI. Phase 1: `config show` and `workflow preview` work; the rest are stubs."""
+"""sdlc CLI. `config show`, `workflow preview` and `sync` work; the rest are stubs."""
 import typer
 
+from sdlc.adapters.confluence import ConfluenceClient
+from sdlc.adapters.local_store import LocalObjectStore
 from sdlc.config import load_config, masked
+from sdlc.confluence_sync import sync_tree
 from sdlc.workflow.registry import WorkflowRegistry
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -14,9 +17,17 @@ def _stub(command: str, phase: int) -> None:
     raise typer.Exit(code=1)
 
 
+def _confluence_client(cfg: dict) -> ConfluenceClient:
+    atlassian = cfg["atlassian"]
+    return ConfluenceClient(
+        base_url=atlassian["base_url"], email=atlassian["email"],
+        api_token=atlassian["api_token"], space_key=cfg["confluence"]["space_key"],
+    )
+
+
 @app.command()
 def setup() -> None:
-    _stub("setup", 2)
+    _stub("setup", 3)  # one-time setup becomes meaningful once page_roles.yaml exists (Phase 3)
 
 
 @app.command()
@@ -25,8 +36,16 @@ def seed(dry_run: bool = True) -> None:
 
 
 @app.command()
-def sync(dry_run: bool = True) -> None:
-    _stub("sync", 2)
+def sync(root_page_id: str = typer.Option(..., "--root-page-id", help="Confluence page id to sync"),
+          dry_run: bool = True) -> None:
+    """Download the Confluence tree under --root-page-id into the local corpus."""
+    cfg = load_config()
+    client = _confluence_client(cfg)
+    store = LocalObjectStore(cfg["state_dir"])
+    result = sync_tree(client, store, root_page_id=root_page_id, data_dir=cfg["data_dir"], dry_run=dry_run)
+    typer.echo(f"created={len(result.created)} updated={len(result.updated)} "
+               f"moved={len(result.moved)} deleted={len(result.deleted)} "
+               f"unchanged={len(result.unchanged)}")
 
 
 @app.command()

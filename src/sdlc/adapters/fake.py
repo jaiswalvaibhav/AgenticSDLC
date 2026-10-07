@@ -1,26 +1,68 @@
 """In-memory fakes for every port, for tests (no AWS/Jira/Confluence network needed)."""
-from sdlc.ports import Chunk, Issue, Page, StatusEvent
+from sdlc.ports import Attachment, Chunk, Issue, Page, StatusEvent
 
 
 class FakeDocumentSource:
-    def __init__(self):
+    """Tracks a real parent/child tree, so get_descendants and ancestor paths behave
+    like Confluence: parent_path is the ancestor titles joined with '/', root-first."""
+
+    def __init__(self, space_key: str = "FAKE"):
+        self.space_key = space_key
         self.pages: dict[str, Page] = {}
+        self.children: dict[str, list[str]] = {}  # page_id -> [child page_id, ...]
+        self.attachments: dict[str, list[Attachment]] = {}
+        self.attachment_bytes: dict[str, bytes] = {}
         self._next_id = 1
+
+    def _new_id(self) -> str:
+        page_id = str(self._next_id)
+        self._next_id += 1
+        return page_id
+
+    def add_page(self, title: str, *, parent_id: str | None = None, html: str = "",
+                 page_id: str | None = None, version: int = 1) -> Page:
+        """Test helper: seed a page directly (bypassing create_page's dry-run default)."""
+        page_id = page_id or self._new_id()
+        parent_titles = []
+        node = parent_id
+        while node:
+            parent_titles.insert(0, self.pages[node].title)
+            node = self._parent_of(node)
+        page = Page(page_id=page_id, space_key=self.space_key, title=title,
+                    url=f"fake://{page_id}", version=version,
+                    parent_path="/".join([self.space_key, *parent_titles]), html=html)
+        self.pages[page_id] = page
+        self.children.setdefault(parent_id or "", []).append(page_id)
+        return page
+
+    def _parent_of(self, page_id: str) -> str | None:
+        for parent, kids in self.children.items():
+            if page_id in kids and parent:
+                return parent
+        return None
 
     def get_page(self, page_id: str) -> Page:
         return self.pages[page_id]
 
     def get_descendants(self, root_page_id: str) -> list[Page]:
-        return [p for p in self.pages.values() if p.parent_path.startswith(root_page_id)]
+        ids, stack = [], [root_page_id]
+        while stack:
+            current = stack.pop()
+            ids.append(current)
+            stack.extend(self.children.get(current, []))
+        return [self.pages[i] for i in ids]
+
+    def get_attachments(self, page_id: str) -> list[Attachment]:
+        return self.attachments.get(page_id, [])
+
+    def download_attachment(self, attachment: Attachment) -> bytes:
+        return self.attachment_bytes.get(attachment.attachment_id, b"")
 
     def create_page(self, parent_id: str, title: str, body_html: str, dry_run: bool = True) -> Page:
-        page_id = str(self._next_id)
-        self._next_id += 1
-        page = Page(page_id=page_id, space_key="FAKE", title=title, url=f"fake://{page_id}",
-                    version=1, parent_path=parent_id, html=body_html)
-        if not dry_run:
-            self.pages[page_id] = page
-        return page
+        if dry_run:
+            return Page(page_id="(dry-run)", space_key=self.space_key, title=title,
+                        url="", version=1, parent_path=parent_id, html=body_html)
+        return self.add_page(title, parent_id=parent_id, html=body_html)
 
     def append_to_page(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:
         page = self.pages[page_id]
