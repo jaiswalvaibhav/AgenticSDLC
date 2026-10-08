@@ -4,18 +4,16 @@ from pathlib import Path
 import typer
 
 from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
-from sdlc.adapters.confluence import ConfluenceClient
-from sdlc.adapters.jira import JiraClient
-from sdlc.adapters.jira_polling import PollingStatusSource
-from sdlc.adapters.local_store import LocalObjectStore
 from sdlc.agents.analyst.tasks import TASKS
-from sdlc.agents.runtime import LocalAgentRuntime
+from sdlc.aws import agent_deploy as agent_deploy_mod
 from sdlc.aws import deploy as aws_deploy_mod
 from sdlc.aws import destroy as aws_destroy_mod
 from sdlc.aws_sync import aws_sync as run_aws_sync
 from sdlc.config import load_config, masked
 from sdlc.confluence_sync import sync_tree
 from sdlc.seed import seed_usecase
+from sdlc.sync_once import sync_once
+from sdlc.wiring import agent_runtime, confluence_client, jira_client, object_store
 from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import WorkflowRegistry
 
@@ -29,22 +27,6 @@ def _stub(command: str, phase: int) -> None:
     raise typer.Exit(code=1)
 
 
-def _confluence_client(cfg: dict) -> ConfluenceClient:
-    atlassian = cfg["atlassian"]
-    return ConfluenceClient(
-        base_url=atlassian["base_url"], email=atlassian["email"],
-        api_token=atlassian["api_token"], space_key=cfg["confluence"]["space_key"],
-    )
-
-
-def _jira_client(cfg: dict) -> JiraClient:
-    atlassian = cfg["atlassian"]
-    return JiraClient(
-        base_url=atlassian["base_url"], email=atlassian["email"],
-        api_token=atlassian["api_token"], project_key=cfg["jira"]["project_key"],
-    )
-
-
 @app.command()
 def setup() -> None:
     _stub("setup", 3)  # one-time setup becomes meaningful once page_roles.yaml exists (Phase 3)
@@ -56,7 +38,7 @@ def seed(use_case: str = typer.Option(None, "--use-case", help="defaults to conf
     """Seed the demo Confluence page tree + diagrams for a use case (dry-run by default)."""
     cfg = load_config()
     use_case = use_case or cfg["use_case"]
-    client = _confluence_client(cfg)
+    client = confluence_client(cfg)
     result = seed_usecase(client, Path("usecases") / use_case, dry_run=dry_run)
     typer.echo(f"created={len(result.created)} skipped(already existed)={len(result.skipped)}")
 
@@ -66,8 +48,8 @@ def sync(root_page_id: str = typer.Option(..., "--root-page-id", help="Confluenc
           dry_run: bool = True) -> None:
     """Download the Confluence tree under --root-page-id into the local corpus."""
     cfg = load_config()
-    client = _confluence_client(cfg)
-    store = LocalObjectStore(cfg["state_dir"])
+    client = confluence_client(cfg)
+    store = object_store(cfg)
     result = sync_tree(client, store, root_page_id=root_page_id, data_dir=cfg["data_dir"], dry_run=dry_run)
     typer.echo(f"created={len(result.created)} updated={len(result.updated)} "
                f"moved={len(result.moved)} deleted={len(result.deleted)} "
@@ -86,15 +68,6 @@ def search(query: str, top_k: int = 10) -> None:
         typer.echo(f"    s3: {chunk.s3_uri}\n")
 
 
-def _knowledge_index(cfg: dict) -> BedrockKnowledgeIndex:
-    return BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["knowledge_base_id"], region=cfg["aws"]["region"])
-
-
-def _agent_runtime(cfg: dict, tickets: JiraClient, store: LocalObjectStore) -> LocalAgentRuntime:
-    return LocalAgentRuntime(doc_source=_confluence_client(cfg), knowledge_index=_knowledge_index(cfg),
-                              tickets=tickets, store=store, cfg=cfg)
-
-
 @app.command(name="analyst-plan")
 def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
                   step: str = typer.Option("solution_requirements", "--step"),
@@ -103,8 +76,8 @@ def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
     orchestrator's readiness gating — useful to test/regenerate without Jira events)."""
     cfg = load_config()
     use_case = use_case or cfg["use_case"]
-    tickets = _jira_client(cfg)
-    store = LocalObjectStore(cfg["state_dir"])
+    tickets = jira_client(cfg)
+    store = object_store(cfg)
     task = TASKS.get(step)
     if not task:
         typer.echo(f"no analyst task registered for step {step!r}")
@@ -116,7 +89,7 @@ def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
         typer.echo(f"no ticket for step {step!r} yet — run `workflow start` first")
         raise typer.Exit(code=1)
 
-    result = _agent_runtime(cfg, tickets, store).run(
+    result = agent_runtime(cfg, tickets, store).run(
         task.id, {"use_case": use_case, "step_id": step, "issue_key": issue_key, "dry_run": dry_run})
     typer.echo(result)
 
@@ -129,8 +102,8 @@ def analyst_apply(use_case: str = typer.Option(None, "--use-case"),
     check — the same real work orchestrator.check_approvals does automatically)."""
     cfg = load_config()
     use_case = use_case or cfg["use_case"]
-    tickets = _jira_client(cfg)
-    store = LocalObjectStore(cfg["state_dir"])
+    tickets = jira_client(cfg)
+    store = object_store(cfg)
     statuses = orchestrator.load_terminology(use_case)["statuses"]
     steps_map = store.get_json(f"workflow/{use_case}/steps.json") or {}
     issue_key = steps_map.get(step)
@@ -142,45 +115,36 @@ def analyst_apply(use_case: str = typer.Option(None, "--use-case"),
                              cfg=cfg, done_status=statuses["done"], dry_run=dry_run)
 
 
-def _sync_once(cfg: dict, *, dry_run: bool) -> None:
-    tickets = _jira_client(cfg)
-    store = LocalObjectStore(cfg["state_dir"])
-    registry = WorkflowRegistry.load()
-    agent = _agent_runtime(cfg, tickets, store)
-    status_source = PollingStatusSource(tickets, store, cfg["jira"]["project_key"])
-
-    events = status_source.poll(dry_run=dry_run)
-    for event in events:
-        orchestrator.handle_status_change(event, tickets=tickets, store=store, cfg=cfg,
-                                           registry=registry, agent=agent, dry_run=dry_run)
-    acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg,
-                                         use_case=cfg["use_case"], dry_run=dry_run)
-    typer.echo(f"status events: {len(events)}, approvals/rejections acted on: {acted}")
-
-
 @app.command(name="sync-progress")
 def sync_progress(dry_run: bool = True) -> None:
     """One-shot: poll Jira for status changes, run rollup + step readiness, and check
     any steps awaiting the approval/reject label."""
-    _sync_once(load_config(), dry_run=dry_run)
+    result = sync_once(load_config(), dry_run=dry_run)
+    typer.echo(f"status events: {result['status_events']}, "
+               f"approvals/rejections acted on: {result['approvals_acted_on']}")
 
 
 @app.command(name="watch-progress")
 def watch_progress(dry_run: bool = True) -> None:
-    """Loop sync-progress forever, every jira.poll_interval_seconds."""
+    """Loop sync-progress forever, every jira.poll_interval_seconds. In the aws profile,
+    prefer the scheduled Lambda (see infra/aws/templates/agent.yaml) over leaving this
+    running — an always-on loop has a standing cost, which a scheduled one-shot avoids."""
     import time
     cfg = load_config()
     interval = cfg["jira"]["poll_interval_seconds"]
     while True:
-        _sync_once(cfg, dry_run=dry_run)
+        sync_once(cfg, dry_run=dry_run)
         time.sleep(interval)
 
 
 @app.command(name="aws-deploy")
 def aws_deploy(dry_run: bool = True) -> None:
-    """Deploy the storage stack (CloudFormation) + Managed Knowledge Base + data
-    source (CLI step), and write the resolved ids back into config.yaml."""
+    """Deploy the storage stack + KB (CloudFormation + CLI step), then the agent stack:
+    AgentCore execution role, scheduled-orchestrator Lambda + EventBridge schedule
+    (CloudFormation), and the AgentCore Runtime itself (agentcore CLI toolkit).
+    Writes the resolved ids back into config.yaml."""
     aws_deploy_mod.deploy(load_config(), dry_run=dry_run)
+    agent_deploy_mod.deploy(load_config(), dry_run=dry_run)  # reloaded: picks up kb/role ids just written
 
 
 @app.command(name="aws-sync")
@@ -193,8 +157,7 @@ def aws_sync(dry_run: bool = True) -> None:
 
 @app.command(name="aws-destroy")
 def aws_destroy(dry_run: bool = True) -> None:
-    """Delete exactly what aws-deploy created (and, from Phase 7, AgentCore), in
-    reverse order, from the resource ledger."""
+    """Delete exactly what aws-deploy created, in reverse order, from the resource ledger."""
     aws_destroy_mod.destroy(load_config(), dry_run=dry_run)
 
 
@@ -242,8 +205,8 @@ def workflow_start(
     """Create the use-case epic + step tickets (dry-run unless --apply)."""
     cfg = load_config()
     registry = WorkflowRegistry.load()
-    tickets = _jira_client(cfg)
-    store = LocalObjectStore(cfg["state_dir"])
+    tickets = jira_client(cfg)
+    store = object_store(cfg)
     step_list = [s.strip() for s in steps.split(",")] if steps else None
 
     steps_map = orchestrator.workflow_start(

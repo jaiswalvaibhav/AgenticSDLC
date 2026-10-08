@@ -12,7 +12,8 @@ from sdlc.aws.ledger import Ledger
 def destroy(cfg: dict, *, dry_run: bool = True) -> None:
     region = cfg["aws"]["region"]
     ledger = Ledger()
-    client = boto3.client("bedrock-agent", region_name=region)
+    kb_client = boto3.client("bedrock-agent", region_name=region)
+    agentcore_client = boto3.client("bedrock-agentcore-control", region_name=region)
 
     for resource in reversed(ledger.resources):
         if resource.kind == "data-source":
@@ -20,12 +21,20 @@ def destroy(cfg: dict, *, dry_run: bool = True) -> None:
             if dry_run:
                 print(f"[dry-run] would delete-data-source {resource.id} (kb {kb_id})")
             else:
-                client.delete_data_source(knowledgeBaseId=kb_id, dataSourceId=resource.id)
+                kb_client.delete_data_source(knowledgeBaseId=kb_id, dataSourceId=resource.id)
         elif resource.kind == "knowledge-base":
             if dry_run:
                 print(f"[dry-run] would delete-knowledge-base {resource.id}")
             else:
-                client.delete_knowledge_base(knowledgeBaseId=resource.id)
+                kb_client.delete_knowledge_base(knowledgeBaseId=resource.id)
+        elif resource.kind == "agentcore-runtime":
+            # resource.id is the full ARN (as recorded by agent_deploy.py); the delete
+            # API wants just the id, the ARN's last path segment after "runtime/".
+            runtime_id = resource.id.rsplit("runtime/", 1)[-1]
+            if dry_run:
+                print(f"[dry-run] would delete-agent-runtime {runtime_id}")
+            else:
+                agentcore_client.delete_agent_runtime(agentRuntimeId=runtime_id)
         elif resource.kind == "cfn-stack":
             cfn.delete_stack(stack_name=resource.id, region=region, dry_run=dry_run)
         else:

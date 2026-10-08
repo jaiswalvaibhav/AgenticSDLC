@@ -193,3 +193,14 @@ class JiraClient:
                     events.append(StatusEvent(issue_key=key, from_status=item.get("fromString", ""),
                                                to_status=item.get("toString", "")))
         return events
+
+    def set_property(self, key: str, property_key: str, value: dict, dry_run: bool = True) -> None:
+        """Jira entity property — arbitrary JSON attached to the issue itself (separate
+        from fields/comments), readable via GET /issue/{key}/properties/{propertyKey}
+        without needing our ObjectStore. Used for traceability (see orchestrator.apply_plan)."""
+        if dry_run:
+            print(f"[dry-run] would set property {property_key!r} on {key}: {value}")
+            return
+        resp = self._session.put(f"{self.base_url}/rest/api/3/issue/{key}/properties/{property_key}",
+                                  json=value)
+        resp.raise_for_status()

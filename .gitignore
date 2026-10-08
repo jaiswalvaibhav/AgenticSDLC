@@ -222,3 +222,7 @@ usecases/enterprise*/
 .data/
 .state/
 infra/aws/.ledger*
+
+# Editor / OS
+.vscode/
+.DS_Store

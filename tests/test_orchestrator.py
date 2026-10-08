@@ -188,6 +188,7 @@ def test_check_approvals_applies_on_label(tickets, store, cfg):
     traceability = store.get_json(f"workflow/{UC}/traceability.json")
     assert traceability["records"][0]["requirement_id"] == "REQ-1"
     assert traceability["records"][0]["jira_key"] == story.key
+    assert tickets.properties[story.key]["sdlc.trace"]["requirement_id"] == "REQ-1"
 
 
 def test_check_approvals_regenerates_on_reject(tickets, store, cfg):

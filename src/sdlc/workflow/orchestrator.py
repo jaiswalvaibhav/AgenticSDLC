@@ -221,11 +221,15 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
         if dsd_key:
             tickets.link_issues(story.key, dsd_key, "Blocks", dry_run=dry_run)
 
-        traceability["records"].append({
+        trace_record = {
             "requirement_id": req["requirement_id"], "jira_key": story.key,
             "source_doc": req["source_doc"], "source_section": req["source_section"],
             "stakeholder_requirement_ids": req["stakeholder_requirement_ids"],
-        })
+        }
+        traceability["records"].append(trace_record)
+        # Also stamped directly on the issue (a Jira entity property), so the
+        # back-trace is readable from Jira itself without our ObjectStore.
+        tickets.set_property(story.key, "sdlc.trace", trace_record, dry_run=dry_run)
         created_keys.append(story.key)
 
     store.put_json(f"workflow/{use_case}/traceability.json", traceability, dry_run=dry_run)

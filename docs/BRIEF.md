@@ -149,15 +149,15 @@ Configuration: config.yaml with environment-variable overrides, plus a profile s
 - README with local quick start and AWS quick start.
 
 ## Phases (confirm with me after each; revised in Phase 0)
-0. Questions, then plan, then CLAUDE.md
-1. Project skeleton, config/profile system, interfaces + fakes, workflow step registry, .gitignore and .env.example
-2. Confluence client: download (page.html, _attachments, metadata), hierarchy, manifest, create/append pages
-3. Demo use case: seed content and diagrams, terminology.yaml, page_roles.yaml, templates
-4. AWS knowledge: CloudFormation (S3, IAM), Managed KB, WeasyPrint PDFs + metadata, `aws-sync`, `search`
-5. Jira client, workflow start, transitions, progress polling, rollup, step orchestration, label approval
-6. Analyst agent: plan, approve, apply, traceability
-7. AgentCore runtime, scheduled orchestrator, resource ledger, destroy, Jira issue-property traceability
-8. Docs, tests, cleanup
+- [x] 0. Questions, then plan, then CLAUDE.md
+- [x] 1. Project skeleton, config/profile system, interfaces + fakes, workflow step registry, .gitignore and .env.example
+- [x] 2. Confluence client: download (page.html, _attachments, metadata), hierarchy, manifest, create/append pages
+- [x] 3. Demo use case: seed content and diagrams, terminology.yaml, page_roles.yaml, templates
+- [x] 4. AWS knowledge: CloudFormation (S3, IAM), Managed KB, WeasyPrint PDFs + metadata, `aws-sync`, `search`
+- [x] 5. Jira client, workflow start, transitions, progress polling, rollup, step orchestration, label approval
+- [x] 6. Analyst agent: plan, approve, apply, traceability
+- [x] 7. AgentCore runtime, scheduled orchestrator, resource ledger, destroy, Jira issue-property traceability
+- [ ] 8. Docs, tests, cleanup — **next**: README quick starts (local + AWS), unit tests with mocked Atlassian/AWS calls, general cleanup pass
 
 ## Phase 0 answers (summary)
 - Tooling:

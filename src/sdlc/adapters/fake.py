@@ -97,6 +97,7 @@ class FakeTicketSystem:
         self.remote_links: dict[str, list[tuple[str, str]]] = {}  # key -> [(url, title)]
         self.artifacts: set[str] = set()  # issue keys treated as having an artifact
         self.blocked_transitions: set[tuple[str, str, str]] = set()  # (key, from_status, to_status)
+        self.properties: dict[str, dict] = {}  # key -> {property_key: value}
 
     def create_issue(self, issue_type, summary, *, parent_key=None, description="",
                       labels=None, assignee=None, component=None, dry_run=True) -> Issue:
@@ -155,6 +156,10 @@ class FakeTicketSystem:
 
     def status_changes_since(self, key: str, since: str) -> list[StatusEvent]:
         return [e for e in self.events if e.issue_key == key]
+
+    def set_property(self, key: str, property_key: str, value: dict, dry_run: bool = True) -> None:
+        if not dry_run:
+            self.properties.setdefault(key, {})[property_key] = value
 
 
 class FakeObjectStore:

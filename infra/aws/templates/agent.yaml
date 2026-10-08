@@ -1,0 +1,185 @@
+# Agent stack: the AgentCore Runtime execution role, the scheduled-orchestrator
+# Lambda + its role, and the EventBridge schedule that triggers it. Deployed with
+# `aws cloudformation deploy` (see src/sdlc/aws/agent_deploy.py).
+#
+# NOT in this stack: the AgentCore Runtime resource itself (the container + its
+# bedrock-agentcore:Runtime). Per the user's choice (Phase 7), that's created by the
+# `agentcore` CLI toolkit (`agentcore configure -er <AgentExecutionRoleArn> && agentcore
+# launch`), which builds+pushes the Docker image — something CloudFormation can't do.
+# This template creates AgentExecutionRole first specifically so that CLI step can be
+# given a pre-existing, least-privilege role instead of auto-creating one.
+#
+# Permissions verified against docs.aws.amazon.com/bedrock-agentcore/.../runtime-permissions.html
+# (Oct 2026) for AgentExecutionRole; bedrock-agent-runtime:Retrieve (for the KB) is our
+# own addition on top of that, following the same action-naming the Retrieve API uses.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Autonomous Data SDLC - AgentCore execution role + scheduled orchestrator Lambda
+
+Parameters:
+  ProjectTag:
+    Type: String
+    Default: agentic-sdlc
+  KnowledgeBaseArn:
+    Type: String
+    Description: arn:aws:bedrock:<region>:<account>:knowledge-base/<id>, for scoping Retrieve
+  LambdaCodeBucket:
+    Type: String
+  LambdaCodeKey:
+    Type: String
+  StateBucketArn:
+    Type: String
+  ScheduleExpression:
+    Type: String
+    Default: "rate(5 minutes)"
+
+Resources:
+  AgentExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*"
+      Policies:
+        - PolicyName: AgentCoreRuntimeExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ECRImageAccess
+                Effect: Allow
+                Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+              - Sid: ECRTokenAccess
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:DescribeLogStreams, logs:CreateLogGroup, logs:CreateLogStream,
+                         logs:PutLogEvents, logs:DescribeLogGroups, logs:PutResourcePolicy]
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+              - Sid: Tracing
+                Effect: Allow
+                Action: [xray:PutTraceSegments, xray:PutTelemetryRecords,
+                         xray:GetSamplingRules, xray:GetSamplingTargets]
+                Resource: "*"
+              - Sid: Metrics
+                Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: bedrock-agentcore
+              - Sid: WorkloadAccessToken
+                Effect: Allow
+                Action: [bedrock-agentcore:GetWorkloadAccessToken,
+                         bedrock-agentcore:GetWorkloadAccessTokenForJWT]
+                Resource:
+                  - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default"
+                  - !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/*"
+              - Sid: BedrockModelInvocation
+                Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  - "arn:aws:bedrock:*::foundation-model/*"
+                  - !Sub "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:*"
+              - Sid: KnowledgeBaseRetrieve
+                Effect: Allow
+                Action: bedrock-agent-runtime:Retrieve
+                Resource: !Ref KnowledgeBaseArn
+      Tags:
+        - Key: project
+          Value: !Ref ProjectTag
+
+  OrchestratorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: OrchestratorLambdaExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Sid: StateBucketAccess
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:ListBucket, s3:DeleteObject]
+                Resource:
+                  - !Ref StateBucketArn
+                  - !Sub "${StateBucketArn}/*"
+              - Sid: InvokeAgentCore
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                # The runtime's id is assigned by agentcore launch, after this stack
+                # exists (see the comment at the top of this file) — can't scope tighter
+                # than account+region here.
+                Resource: !Sub "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:runtime/*"
+      Tags:
+        - Key: project
+          Value: !Ref ProjectTag
+
+  OrchestratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.13
+      Handler: sdlc.aws.orchestrator_lambda.handler
+      Role: !GetAtt OrchestratorLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Ref LambdaCodeKey
+      Timeout: 120
+      MemorySize: 256
+      # Secrets as plaintext environment variables, per the user's choice (Phase 7) —
+      # see CLAUDE.md "Decisions" for the Secrets-Manager tradeoff this forgoes.
+      # AGENT_RUNTIME_ARN is blank here and updated after `agentcore launch` runs
+      # (agent_deploy.py calls update-function-configuration) — unknown at this point.
+      Environment:
+        Variables:
+          SDLC__PROFILE: aws
+          SDLC__AWS__AGENT_RUNTIME_ARN: ""
+      Tags:
+        - Key: project
+          Value: !Ref ProjectTag
+
+  SchedulerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Id: OrchestratorLambdaTarget
+          Arn: !GetAtt OrchestratorLambda.Arn
+
+  SchedulerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OrchestratorLambda
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SchedulerRule.Arn
+
+Outputs:
+  AgentExecutionRoleArn:
+    Value: !GetAtt AgentExecutionRole.Arn
+  OrchestratorLambdaName:
+    Value: !Ref OrchestratorLambda
+  OrchestratorLambdaArn:
+    Value: !GetAtt OrchestratorLambda.Arn
