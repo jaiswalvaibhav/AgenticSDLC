@@ -13,7 +13,7 @@ from botocore.exceptions import ClientError
 
 def deploy_stack(*, template_path: str, stack_name: str, region: str,
                   parameters: dict[str, str], tags: dict[str, str],
-                  dry_run: bool = True) -> None:
+                  dry_run: bool = True, secret_keys: frozenset[str] = frozenset()) -> None:
     cmd = [
         "aws", "cloudformation", "deploy",
         "--template-file", template_path,
@@ -27,7 +27,12 @@ def deploy_stack(*, template_path: str, stack_name: str, region: str,
         cmd += ["--tags", *(f"{k}={v}" for k, v in tags.items())]
 
     if dry_run:
-        print(f"[dry-run] would run: {shlex.join(cmd)}")
+        # Mask NoEcho/secret parameter values so they never hit stdout/logs.
+        printable = []
+        for tok in cmd:
+            key = tok.split("=", 1)[0] if "=" in tok else None
+            printable.append(f"{key}=***" if key in secret_keys else tok)
+        print(f"[dry-run] would run: {shlex.join(printable)}")
         return
     subprocess.run(cmd, check=True)
 

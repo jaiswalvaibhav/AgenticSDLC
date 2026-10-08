@@ -31,6 +31,15 @@ Parameters:
   ScheduleExpression:
     Type: String
     Default: "rate(5 minutes)"
+  AtlassianBaseUrl:
+    Type: String
+  AtlassianEmail:
+    Type: String
+  AtlassianApiToken:
+    Type: String
+    NoEcho: true
+  JiraProjectKey:
+    Type: String
 
 Resources:
   AgentExecutionRole:
@@ -150,11 +159,16 @@ Resources:
       # Secrets as plaintext environment variables, per the user's choice (Phase 7) —
       # see CLAUDE.md "Decisions" for the Secrets-Manager tradeoff this forgoes.
       # AGENT_RUNTIME_ARN is blank here and updated after `agentcore launch` runs
-      # (agent_deploy.py calls update-function-configuration) — unknown at this point.
+      # (agent_deploy.py calls update-function-configuration, merging in this ARN
+      # alongside the variables set here) — unknown at this point.
       Environment:
         Variables:
           SDLC__PROFILE: aws
           SDLC__AWS__AGENT_RUNTIME_ARN: ""
+          SDLC__ATLASSIAN__BASE_URL: !Ref AtlassianBaseUrl
+          SDLC__ATLASSIAN__EMAIL: !Ref AtlassianEmail
+          SDLC__ATLASSIAN__API_TOKEN: !Ref AtlassianApiToken
+          SDLC__JIRA__PROJECT_KEY: !Ref JiraProjectKey
       Tags:
         - Key: project
           Value: !Ref ProjectTag

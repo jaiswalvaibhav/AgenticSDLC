@@ -97,14 +97,18 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
     kb_arn = f"arn:aws:bedrock:{region}:*:knowledge-base/{aws['knowledge_base_id'] or '(dry-run)'}"
     state_bucket_arn = f"arn:aws:s3:::{aws['bucket']}"
 
+    atlassian = cfg["atlassian"]
     cfn.deploy_stack(
         template_path=TEMPLATE_PATH, stack_name=stack_name, region=region,
         parameters={
             "ProjectTag": aws["tags"].get("project", "agentic-sdlc"),
             "KnowledgeBaseArn": kb_arn, "LambdaCodeBucket": bucket, "LambdaCodeKey": key,
             "StateBucketArn": state_bucket_arn,
+            "AtlassianBaseUrl": atlassian["base_url"], "AtlassianEmail": atlassian["email"],
+            "AtlassianApiToken": atlassian["api_token"], "JiraProjectKey": cfg["jira"]["project_key"],
         },
         tags=aws["tags"], dry_run=dry_run,
+        secret_keys=frozenset({"AtlassianApiToken"}),
     )
     ledger.append(Resource(kind="cfn-stack", id=stack_name), dry_run=dry_run)
 
@@ -122,9 +126,12 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
     agent_runtime_arn = _read_agent_runtime_arn()
     ledger.append(Resource(kind="agentcore-runtime", id=agent_runtime_arn), dry_run=False)
 
-    boto3.client("lambda", region_name=region).update_function_configuration(
+    lambda_client = boto3.client("lambda", region_name=region)
+    current_vars = lambda_client.get_function_configuration(
+        FunctionName=lambda_name)["Environment"]["Variables"]
+    lambda_client.update_function_configuration(
         FunctionName=lambda_name, Environment={"Variables": {
-            "SDLC__PROFILE": "aws", "SDLC__AWS__AGENT_RUNTIME_ARN": agent_runtime_arn,
+            **current_vars, "SDLC__AWS__AGENT_RUNTIME_ARN": agent_runtime_arn,
         }},
     )
 
