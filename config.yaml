@@ -36,6 +36,10 @@ aws:
   kb_role_arn: ""
   embedding_model_type: MANAGED   # MANAGED | CUSTOM
   embedding_model_arn: ""         # only for CUSTOM
-  llm_model_id: ""                # Bedrock inference profile ID (verified in Phase 6)
+  # Bedrock inference profile ID — ap-southeast-2 needs a cross-region profile, not a
+  # plain foundation-model id (see CLAUDE.md). Confirmed enabled on this account via
+  # `aws bedrock list-inference-profiles --region ap-southeast-2`; swap for a newer
+  # Claude profile (e.g. an au.anthropic.* Sonnet 4.5/Haiku 4.5 one) if you have it enabled.
+  llm_model_id: "apac.anthropic.claude-3-5-sonnet-20240620-v1:0"
   agent_runtime_arn: ""
   tags: {project: agentic-sdlc}

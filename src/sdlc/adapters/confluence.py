@@ -193,6 +193,10 @@ class ConfluenceClient:
 
     def create_page(self, parent_id: str | None, title: str, body_html: str,
                      dry_run: bool = True) -> Page:
+        if dry_run:
+            print(f"[dry-run] would create page {title!r} under parent {parent_id}")
+            return Page(page_id="(dry-run)", space_key=self.space_key, title=title,
+                        url="", version=1, parent_path="", html=body_html)
         payload = {
             "spaceId": self._space_id(),
             "status": "current",
@@ -201,10 +205,6 @@ class ConfluenceClient:
         }
         if parent_id:
             payload["parentId"] = parent_id
-        if dry_run:
-            print(f"[dry-run] would create page {title!r} under parent {parent_id}")
-            return Page(page_id="(dry-run)", space_key=self.space_key, title=title,
-                        url="", version=1, parent_path="", html=body_html)
         resp = self._session.post(f"{self.base_url}/wiki/api/v2/pages", json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -214,11 +214,11 @@ class ConfluenceClient:
                      html=body_html)
 
     def append_to_page(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:
-        current = self._get(f"/pages/{page_id}", params={"body-format": "storage"})
-        new_value = current["body"]["storage"]["value"] + body_html
         if dry_run:
             print(f"[dry-run] would append {len(body_html)} chars to page {page_id}")
             return self.get_page(page_id)
+        current = self._get(f"/pages/{page_id}", params={"body-format": "storage"})
+        new_value = current["body"]["storage"]["value"] + body_html
         payload = {
             "id": page_id,
             "status": "current",

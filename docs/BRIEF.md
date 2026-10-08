@@ -157,7 +157,7 @@ Configuration: config.yaml with environment-variable overrides, plus a profile s
 - [x] 5. Jira client, workflow start, transitions, progress polling, rollup, step orchestration, label approval
 - [x] 6. Analyst agent: plan, approve, apply, traceability
 - [x] 7. AgentCore runtime, scheduled orchestrator, resource ledger, destroy, Jira issue-property traceability
-- [ ] 8. Docs, tests, cleanup — **next**: README quick starts (local + AWS), unit tests with mocked Atlassian/AWS calls, general cleanup pass
+- [x] 8. Docs, tests, cleanup — README quick starts (local + AWS), mocked Jira/Confluence/S3 unit tests, cleanup
 
 ## Phase 0 answers (summary)
 - Tooling:

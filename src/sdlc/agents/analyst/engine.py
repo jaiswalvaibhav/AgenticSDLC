@@ -9,8 +9,6 @@ after the step ticket gets the sdlc-approved label.
 tests can exercise the anchor-reading/prompt-building/plan-writing logic without a real
 Bedrock call; the CLI/AgentRuntime path leaves it unset and gets the real Strands Agent.
 """
-from pathlib import Path
-
 from sdlc.agents.analyst.anchors import AnchorNotConfirmed, ImageRef, read_anchor
 from sdlc.agents.analyst.plan_schema import SolutionRequirementsPlan
 from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, TicketSystem

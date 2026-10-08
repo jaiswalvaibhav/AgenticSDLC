@@ -1,3 +1,7 @@
+# Every target is dry-run by default (see CLAUDE.md). Pass variables as needed, e.g.:
+#   make sync ROOT_PAGE_ID=123456
+#   make search QUERY="on-time delivery"
+#   make workflow-start USE_CASE=demo_order_fulfilment
 .PHONY: setup seed sync search workflow-preview workflow-start analyst-plan analyst-apply \
         sync-progress watch-progress aws-deploy aws-sync aws-destroy test
 
@@ -8,7 +12,7 @@ seed:
 	uv run sdlc seed --dry-run
 
 sync:
-	uv run sdlc sync --dry-run
+	uv run sdlc sync --root-page-id $(ROOT_PAGE_ID) --dry-run
 
 search:
 	uv run sdlc search "$(QUERY)"
