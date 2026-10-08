@@ -28,8 +28,13 @@ class AwsSyncResult:
     ingestion_status: str | None = None
 
 
-def _pdf_key(docs_prefix: str, space_key: str, page_id: str) -> str:
-    return f"{docs_prefix}{space_key}/{page_id}.pdf"
+def _pdf_key(docs_prefix: str, use_case: str, space_key: str, page_id: str) -> str:
+    # use_case is in the key path (not just KB metadata) because the Managed KB's S3
+    # connector metadata sidecars (.metadata.json) don't currently get scanned/applied
+    # by this account's region (confirmed live: numberOfMetadataDocumentsScanned stays 0
+    # under every documented connectorParameters shape) — so search() scopes by this
+    # path segment via the retrieved chunk's _source_uri instead of a metadata filter.
+    return f"{docs_prefix}{use_case}/{space_key}/{page_id}.pdf"
 
 
 def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
@@ -53,7 +58,7 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
         pdf_bytes = render_page_pdf(page_dir)
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-        key = _pdf_key(docs_prefix, meta["spaceKey"], page_id)
+        key = _pdf_key(docs_prefix, use_case, meta["spaceKey"], page_id)
         # S3 data source metadata sidecars take flat values, not the {"value": {"type":
         # ...}} shape (that's IngestKnowledgeBaseDocuments' format, for a different, non-S3
         # ingestion path) — confirmed live: the wrapped form ingested with no error but

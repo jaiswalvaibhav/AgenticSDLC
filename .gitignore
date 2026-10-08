@@ -226,3 +226,4 @@ infra/aws/.ledger*
 # Editor / OS
 .vscode/
 .DS_Store
+.bedrock_agentcore/*
