@@ -5,45 +5,45 @@ roles:
     page_id: '3899393'
   frontdoor_request:
     label: role-frontdoor-request
-    title_pattern: Frontdoor Request*
+    title_pattern: 1. Frontdoor Request*
     page_id: '3932161'
   stakeholder_requirements:
     label: role-stakeholder-requirements
-    title_pattern: Stakeholder Requirements*
+    title_pattern: 2. Stakeholder Requirements*
     page_id: '3932181'
   scope:
     label: role-scope
-    title_pattern: Scope*
+    title_pattern: 3. Scope*
     page_id: '3964929'
   feasibility_analysis:
     label: role-feasibility-analysis
-    title_pattern: Feasibility Analysis*
+    title_pattern: 4. Feasibility Analysis*
     page_id: '3997697'
   source_data_analysis:
     label: role-source-data-analysis
-    title_pattern: Source Data Analysis*
+    title_pattern: 5. Source Data Analysis*
     page_id: '3964949'
   conceptual_data_model:
     label: role-conceptual-data-model
-    title_pattern: Conceptual Data Model*
+    title_pattern: 6. Conceptual Data Model*
     page_id: '4030465'
   solution_architecture:
     label: role-solution-architecture
-    title_pattern: Solution Architecture*
+    title_pattern: 7. Solution Architecture*
     page_id: '4063234'
   data_design_solution:
     label: role-data-design-solution
-    title_pattern: Data Design Solution*
+    title_pattern: 8. Data Design Solution*
     page_id: '4161537'
   technical_design_solution:
     label: role-technical-design-solution
-    title_pattern: Technical Design Solution*
+    title_pattern: 9. Technical Design Solution*
     page_id: '4194305'
   data_contract:
     label: role-data-contract
-    title_pattern: Data Contract*
+    title_pattern: 10. Data Contract*
     page_id: '4292609'
   test_strategy:
     label: role-test-strategy
-    title_pattern: Test Strategy*
+    title_pattern: 11. Test Strategy*
     page_id: '4259847'

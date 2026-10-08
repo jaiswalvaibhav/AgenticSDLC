@@ -23,8 +23,8 @@ def test_dry_run_creates_nothing_but_lists_every_page():
 
     assert doc.pages == {}
     assert "Order Fulfilment Performance" in result.created
-    assert "Data Design Solution" in result.created
-    assert "Data Contract" in result.created
+    assert "8. Data Design Solution" in result.created
+    assert "10. Data Contract" in result.created
     assert result.skipped == []
 
 
@@ -42,9 +42,9 @@ def test_apply_creates_full_tree_and_fills_page_roles(tmp_path: Path):
     assert result.skipped == []
     root = doc.find_page_by_title("Order Fulfilment Performance")
     assert root is not None
-    dds = doc.find_page_by_title("Data Design Solution")
+    dds = doc.find_page_by_title("8. Data Design Solution")
     assert dds is not None
-    assert dds.parent_path.endswith("Solution Architecture")  # nested under the right parent
+    assert dds.parent_path.endswith("Order Fulfilment Performance")  # flat under the use-case root
 
     page_roles = yaml.safe_load((usecase_dir / "page_roles.yaml").read_text())
     assert page_roles["roles"]["data_design_solution"]["page_id"] == dds.page_id

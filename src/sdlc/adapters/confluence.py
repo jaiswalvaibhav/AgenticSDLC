@@ -235,3 +235,27 @@ class ConfluenceClient:
         resp = self._session.put(f"{self.base_url}/wiki/api/v2/pages/{page_id}", json=payload)
         resp.raise_for_status()
         return self.get_page(page_id)
+
+    def move_page(self, page_id: str, *, title: str | None = None, parent_id: str | None = None,
+                   dry_run: bool = True) -> Page:
+        """Rename and/or reparent a page within the same space. Verified against the
+        Confluence Cloud REST v2 OpenAPI spec (PUT /pages/{id}): `title` and `parentId`
+        are both plain fields on the same update-page request body as `append_to_page`
+        uses, no separate "move" endpoint needed."""
+        if dry_run:
+            print(f"[dry-run] would move page {page_id} to title={title!r} parent={parent_id}")
+            return self.get_page(page_id)
+        current = self._get(f"/pages/{page_id}", params={"body-format": "storage"})
+        payload = {
+            "id": page_id,
+            "status": "current",
+            "title": title or current["title"],
+            "spaceId": current["spaceId"],
+            "body": {"representation": "storage", "value": current["body"]["storage"]["value"]},
+            "version": {"number": current["version"]["number"] + 1, "message": "sdlc move"},
+        }
+        if parent_id:
+            payload["parentId"] = parent_id
+        resp = self._session.put(f"{self.base_url}/wiki/api/v2/pages/{page_id}", json=payload)
+        resp.raise_for_status()
+        return self.get_page(page_id)

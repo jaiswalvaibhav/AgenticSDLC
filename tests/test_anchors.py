@@ -8,7 +8,12 @@ from sdlc.adapters.fake import FakeDocumentSource, FakeObjectStore
 UC = "demo_order_fulfilment"  # uses the real usecases/demo_order_fulfilment/page_roles.yaml
 
 
-def test_missing_page_id_raises_with_no_candidate():
+def test_missing_page_id_raises_with_no_candidate(monkeypatch):
+    monkeypatch.setattr(
+        "sdlc.agents.analyst.anchors._page_roles",
+        lambda use_case: {"data_design_solution": {"title_pattern": "Data Design Solution*",
+                                                     "page_id": None}},
+    )
     doc = FakeDocumentSource()
     store = FakeObjectStore()
     with pytest.raises(AnchorNotConfirmed) as exc:
@@ -17,10 +22,14 @@ def test_missing_page_id_raises_with_no_candidate():
     assert exc.value.candidates == []
 
 
-def test_missing_page_id_surfaces_a_title_candidate():
-    # page_roles.yaml's title_pattern for this role is "Data Design Solution*"; the
-    # fake's find_page_by_title is an exact match, so the title must match it exactly
-    # once the trailing '*' is stripped.
+def test_missing_page_id_surfaces_a_title_candidate(monkeypatch):
+    # title_pattern "Data Design Solution*"; the fake's find_page_by_title is an exact
+    # match, so the title must match it exactly once the trailing '*' is stripped.
+    monkeypatch.setattr(
+        "sdlc.agents.analyst.anchors._page_roles",
+        lambda use_case: {"data_design_solution": {"title_pattern": "Data Design Solution*",
+                                                     "page_id": None}},
+    )
     doc = FakeDocumentSource()
     doc.add_page("Data Design Solution", page_id="9")
     store = FakeObjectStore()

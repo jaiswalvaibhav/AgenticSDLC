@@ -30,35 +30,37 @@ class SeedResult:
 
 
 def _pages(terms: dict, usecase: dict) -> list[SeedPage]:
-    """The seed page tree, in creation order. Built from `terms` so page titles follow
-    the use case's terminology (identity-mapped for the demo use case)."""
-    return [
-        SeedPage("usecase_root", usecase["display_name"], "usecase_root.html.j2"),
-        SeedPage("frontdoor_request", terms["frontdoor_request"], "frontdoor_request.html.j2",
-                  "usecase_root"),
-        SeedPage("stakeholder_requirements", terms["stakeholder_requirements"],
-                  "stakeholder_requirements.html.j2", "frontdoor_request"),
-        SeedPage("scope", terms["scope"], "scope.html.j2", "stakeholder_requirements"),
-        SeedPage("feasibility_analysis", terms["feasibility_analysis"], "feasibility_analysis.html.j2",
-                  "scope"),
-        SeedPage("source_data_analysis", terms["source_data_analysis"], "source_data_analysis.html.j2",
-                  "scope"),
-        SeedPage("conceptual_data_model", terms["conceptual_data_model"], "conceptual_data_model.html.j2",
-                  "source_data_analysis", diagram="conceptual_data_model"),
-        SeedPage("solution_architecture", terms["solution_architecture"], "solution_architecture.html.j2",
-                  "conceptual_data_model", diagram="solution_architecture"),
-        SeedPage("data_design_solution", terms["data_design_solution"], "data_design_solution.html.j2",
-                  "solution_architecture"),
-        SeedPage("technical_design_solution", terms["technical_design_solution"],
-                  "technical_design_solution.html.j2", "solution_architecture",
-                  diagram="technical_design_solution"),
-        SeedPage("data_contract", terms["data_contract"], "placeholder.html.j2", "data_design_solution",
-                  extra_context={"title": terms["data_contract"],
-                                  "note": "Produced from the Data Design Solution by a future task."}),
-        SeedPage("test_strategy", terms["test_strategy"], "placeholder.html.j2",
-                  "technical_design_solution",
-                  extra_context={"title": terms["test_strategy"],
-                                  "note": "Produced by the (out-of-scope) tester agent."}),
+    """The seed page tree: a use-case root "folder" page, with every artifact page a
+    flat, numbered child of it (1, 2, 3... in production order) rather than nested
+    parent/child — numbering restarts at 1 per use case."""
+    root = SeedPage("usecase_root", usecase["display_name"], "usecase_root.html.j2")
+    flat = [
+        ("frontdoor_request", terms["frontdoor_request"], "frontdoor_request.html.j2", None),
+        ("stakeholder_requirements", terms["stakeholder_requirements"],
+         "stakeholder_requirements.html.j2", None),
+        ("scope", terms["scope"], "scope.html.j2", None),
+        ("feasibility_analysis", terms["feasibility_analysis"], "feasibility_analysis.html.j2", None),
+        ("source_data_analysis", terms["source_data_analysis"], "source_data_analysis.html.j2", None),
+        ("conceptual_data_model", terms["conceptual_data_model"], "conceptual_data_model.html.j2",
+         "conceptual_data_model"),
+        ("solution_architecture", terms["solution_architecture"], "solution_architecture.html.j2",
+         "solution_architecture"),
+        ("data_design_solution", terms["data_design_solution"], "data_design_solution.html.j2", None),
+        ("technical_design_solution", terms["technical_design_solution"],
+         "technical_design_solution.html.j2", "technical_design_solution"),
+        ("data_contract", terms["data_contract"], "placeholder.html.j2", None),
+        ("test_strategy", terms["test_strategy"], "placeholder.html.j2", None),
+    ]
+    extra_context = {
+        "data_contract": {"title": terms["data_contract"],
+                           "note": "Produced from the Data Design Solution by a future task."},
+        "test_strategy": {"title": terms["test_strategy"],
+                           "note": "Produced by the (out-of-scope) tester agent."},
+    }
+    return [root] + [
+        SeedPage(role, f"{i}. {title}", template, "usecase_root", diagram=diagram,
+                 extra_context=extra_context.get(role, {}))
+        for i, (role, title, template, diagram) in enumerate(flat, start=1)
     ]
 
 

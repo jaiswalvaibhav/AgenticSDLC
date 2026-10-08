@@ -86,6 +86,26 @@ class FakeDocumentSource:
             page.version += 1
         return page
 
+    def move_page(self, page_id: str, *, title: str | None = None, parent_id: str | None = None,
+                   dry_run: bool = True) -> Page:
+        page = self.pages[page_id]
+        if dry_run:
+            return page
+        if title is not None:
+            page.title = title
+        if parent_id is not None:
+            old_parent = self._parent_of(page_id)
+            self.children.get(old_parent or "", []).remove(page_id)
+            self.children.setdefault(parent_id, []).append(page_id)
+        parent_titles = []
+        node = self._parent_of(page_id)
+        while node:
+            parent_titles.insert(0, self.pages[node].title)
+            node = self._parent_of(node)
+        page.parent_path = "/".join([self.space_key, *parent_titles])
+        page.version += 1
+        return page
+
 
 class FakeTicketSystem:
     def __init__(self):
