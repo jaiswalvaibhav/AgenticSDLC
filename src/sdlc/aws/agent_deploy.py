@@ -24,6 +24,7 @@ from sdlc.aws.ledger import Ledger, Resource
 
 TEMPLATE_PATH = "infra/aws/templates/agent.yaml"
 ENTRYPOINT = "src/sdlc/agents/agentcore_app.py"
+AGENT_NAME = "sdlc_orchestrator"
 
 
 def _zip_lambda_code(zip_path: Path) -> None:
@@ -70,17 +71,18 @@ def _run_agentcore_cli(cmd: list[str], *, dry_run: bool) -> str:
 
 
 def _read_agent_runtime_arn() -> str:
-    """Reads the ARN `agentcore launch` creates. UNVERIFIED this session (no real
-    launch was run) — the toolkit writes `.bedrock_agentcore.yaml`; adjust the key(s)
-    tried here against what a real run actually produces."""
+    """Reads the ARN `agentcore launch` creates: `.bedrock_agentcore.yaml`'s
+    `agents.<default_agent>.bedrock_agentcore.agent_arn` — confirmed against a real
+    `agentcore configure`/`launch` run (bedrock-agentcore-starter-toolkit 0.3.14)."""
     config_path = Path(".bedrock_agentcore.yaml")
     if not config_path.exists():
         raise RuntimeError(".bedrock_agentcore.yaml not found after agentcore launch")
     data = yaml.safe_load(config_path.read_text())
-    for key in ("agent_runtime_arn", "agentRuntimeArn", "runtime_arn"):
-        if key in data:
-            return data[key]
-    # Fall back to a nested search, since the exact shape isn't confirmed.
+    agent_name = data.get("default_agent")
+    arn = data.get("agents", {}).get(agent_name, {}).get("bedrock_agentcore", {}).get("agent_arn")
+    if arn:
+        return arn
+    # Fall back to a nested search, in case the toolkit's shape changes again.
     found = re.search(r"arn:aws:bedrock-agentcore:[^\s\"']+:runtime/[^\s\"']+", config_path.read_text())
     if found:
         return found.group(0)
@@ -121,8 +123,9 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
     outputs = cfn.stack_outputs(stack_name=stack_name, region=region)
     role_arn, lambda_name = outputs["AgentExecutionRoleArn"], outputs["OrchestratorLambdaName"]
 
-    _run_agentcore_cli(["agentcore", "configure", "-e", ENTRYPOINT, "-er", role_arn], dry_run=False)
-    _run_agentcore_cli(["agentcore", "launch"], dry_run=False)
+    _run_agentcore_cli(["agentcore", "configure", "-e", ENTRYPOINT, "-er", role_arn,
+                        "-n", AGENT_NAME, "--non-interactive"], dry_run=False)
+    _run_agentcore_cli(["agentcore", "launch", "-auc"], dry_run=False)
     agent_runtime_arn = _read_agent_runtime_arn()
     ledger.append(Resource(kind="agentcore-runtime", id=agent_runtime_arn), dry_run=False)
 

@@ -6,7 +6,8 @@ Verified against developer.atlassian.com/cloud/confluence/rest/v2 (Oct 2026):
 - GET  /wiki/api/v2/pages/{id}?body-format=export_view      -> id, title, spaceId, parentId,
                                                                 version.number, body.export_view.value
 - GET  /wiki/api/v2/pages/{id}/ancestors                    -> [{id, type}, ...] root-first, no title
-- GET  /wiki/api/v2/pages/{id}/descendants?cursor&limit     -> [{id, title, parentId, depth}, ...]
+- GET  /wiki/api/v2/pages/{id}/descendants?cursor&limit&depth -> [{id, title, parentId, depth}, ...]
+                                                                (depth defaults to 2 if omitted; max 10)
 - GET  /wiki/api/v2/pages?id={id1}&id={id2}&...             -> batched metadata (incl. version.number)
                                                                 without fetching any body
 - GET  /wiki/api/v2/pages/{id}/attachments?cursor&limit     -> [{id, title, downloadLink, mediaType,
@@ -123,7 +124,11 @@ class ConfluenceClient:
         Confluence ancestors above it (if any) are intentionally not included, so a
         use-case sync stays scoped to its own sub-tree regardless of where it sits in
         the wider space."""
-        descendants = self._get_all(f"/pages/{root_page_id}/descendants")
+        # depth=10 is the API's hard max (depth > 10 is a 400; the param defaults to
+        # 2 when omitted, which silently truncated deep trees — confirmed live against
+        # a real space, Oct 2026). A >10-level-deep use case would need per-leaf
+        # re-fetches to go further; none of ours are anywhere close to that.
+        descendants = self._get_all(f"/pages/{root_page_id}/descendants", params={"depth": 10})
         root = self._get(f"/pages/{root_page_id}")
         nodes = {root_page_id: {"title": root["title"], "parentId": None}}
         for d in descendants:

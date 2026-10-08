@@ -54,14 +54,18 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
         key = _pdf_key(docs_prefix, meta["spaceKey"], page_id)
+        # S3 data source metadata sidecars take flat values, not the {"value": {"type":
+        # ...}} shape (that's IngestKnowledgeBaseDocuments' format, for a different, non-S3
+        # ingestion path) — confirmed live: the wrapped form ingested with no error but
+        # silently dropped every custom field, leaving only Bedrock's built-in `_...` ones.
         metadata = {
             "metadataAttributes": {
-                "use_case": {"value": {"type": "STRING", "stringValue": use_case}},
-                "space": {"value": {"type": "STRING", "stringValue": meta["spaceKey"]}},
-                "page_id": {"value": {"type": "STRING", "stringValue": page_id}},
-                "title": {"value": {"type": "STRING", "stringValue": meta["title"]}},
-                "url": {"value": {"type": "STRING", "stringValue": meta["url"]}},
-                "version": {"value": {"type": "NUMBER", "numberValue": meta["version"]}},
+                "use_case": use_case,
+                "space": meta["spaceKey"],
+                "page_id": page_id,
+                "title": meta["title"],
+                "url": meta["url"],
+                "version": meta["version"],
             }
         }
         if dry_run:
