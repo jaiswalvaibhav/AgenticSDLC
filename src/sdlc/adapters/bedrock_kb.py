@@ -11,6 +11,16 @@ real KB that the Managed connector's S3 metadata sidecars (.metadata.json) never
 scanned (numberOfMetadataDocumentsScanned stayed 0 under every documented
 connectorParameters shape we tried), so a server-side `equals` filter on `use_case`
 silently returns nothing.
+
+KNOWN LIMITATION (not yet hit — only one use case exists today): Retrieve ranks across
+the *entire* KB, not just the requested use_case, before we filter client-side. If a
+second use case's content scores highly for a query, it can crowd the first use case's
+results out of the over-fetched window entirely, so search() could return fewer than
+top_k (or zero) results for a use case that genuinely has relevant content. Raising
+_OVERFETCH_FACTOR shrinks this risk but doesn't eliminate it. The real fix, if/when this
+starts to matter, is one Knowledge Base per use case (true isolation, no filtering
+needed) rather than a shared KB — bump search quality here before scaling to multiple
+in-production use cases.
 """
 import boto3
 
