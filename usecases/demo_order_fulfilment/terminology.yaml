@@ -23,7 +23,9 @@ layers:
 issue_types:
   epic: Epic
   story: Story
-  subtask: Sub-task
+  subtask: Subtask  # this Jira instance's real Sub-task issue type name has no hyphen
+                     # (confirmed via GET /issue/createmeta?projectKeys=SCRUM) — a
+                     # literal "Sub-task" 400s on create.
 
 statuses:
   todo: To Do

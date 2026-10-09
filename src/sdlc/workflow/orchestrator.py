@@ -192,6 +192,7 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
         tickets.add_comment(issue_key, "No plan found to apply.", dry_run=dry_run)
         return
 
+    issue_types = load_terminology(use_case)["issue_types"]
     epic = tickets.find_issue_by_label(f"sdlc-epic:{use_case}")
     steps_map = _steps_map(store, use_case)
     dsd_key = steps_map.get("data_solution_development")
@@ -209,13 +210,13 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
         description = (f"{req['description']}\n\nAcceptance criteria:\n{ac_text}\n\n"
                         f"Source: {req['source_doc']} § {req['source_section']}")
         story = tickets.create_issue(
-            "Story", req["title"], parent_key=epic.key if epic else None, description=description,
+            issue_types["story"], req["title"], parent_key=epic.key if epic else None, description=description,
             labels=[f"uc:{use_case}", f"ws:{req['workstream']}", marker], dry_run=dry_run,
         )
-        tickets.create_issue("Sub-task", f"[Engineering] {req['title']}", parent_key=story.key,
+        tickets.create_issue(issue_types["subtask"], f"[Engineering] {req['title']}", parent_key=story.key,
                               component=cfg["jira"]["components"].get("engineer"),
                               assignee=cfg["jira"]["assignees"].get("engineer") or None, dry_run=dry_run)
-        tickets.create_issue("Sub-task", f"[Testing] {req['title']}", parent_key=story.key,
+        tickets.create_issue(issue_types["subtask"], f"[Testing] {req['title']}", parent_key=story.key,
                               component=cfg["jira"]["components"].get("tester"),
                               assignee=cfg["jira"]["assignees"].get("tester") or None, dry_run=dry_run)
         if dsd_key:
@@ -280,10 +281,11 @@ def workflow_start(*, tickets: TicketSystem, store: ObjectStore, registry: Workf
     usecase_yaml = yaml.safe_load((Path("usecases") / use_case / "usecase.yaml").read_text())
     selection = registry.resolve_selection(from_step=from_step, steps=steps)
 
+    issue_types = load_terminology(use_case)["issue_types"]
     epic_marker = f"sdlc-epic:{use_case}"
     epic = tickets.find_issue_by_label(epic_marker)
     if not epic:
-        epic = tickets.create_issue("Epic", f"[{usecase_yaml['display_name']}] Delivery",
+        epic = tickets.create_issue(issue_types["epic"], f"[{usecase_yaml['display_name']}] Delivery",
                                       labels=[f"uc:{use_case}", epic_marker], dry_run=dry_run)
 
     steps_map = _steps_map(store, use_case)
@@ -296,7 +298,7 @@ def workflow_start(*, tickets: TicketSystem, store: ObjectStore, registry: Workf
             steps_map[step.id] = existing.key
             continue
         issue = tickets.create_issue(
-            "Story", step.artifact, parent_key=epic.key,
+            issue_types["story"], step.artifact, parent_key=epic.key,
             labels=[f"uc:{use_case}", f"step:{step.id}", marker],
             assignee=cfg["jira"]["assignees"].get(step.owner) or None,
             component=cfg["jira"]["components"].get(step.owner), dry_run=dry_run,
