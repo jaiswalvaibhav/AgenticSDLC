@@ -2,16 +2,33 @@
 Claude, full anchor reads (DDS/TDS, section by section, diagrams as images), the
 search_knowledge tool for supporting pages, and a structured plan.json/plan.md output.
 
+Besides plan.json/plan.md in the ObjectStore (.state/ for profile: local, S3 for
+profile: aws — see ports.ObjectStore), the full plan is also published as a Confluence
+page (DocumentSource is Confluence in both profiles), under the use case root page,
+alongside the other numbered anchor pages, so a reviewer can see every requirement —
+not just the short summary in the Jira comment — before approving.
+
 This never creates Jira issues itself — orchestrator.apply_plan does that, and only
 after the step ticket gets the sdlc-approved label.
 
-`agent` is injectable (an object with .structured_output(Model, content) -> Model) so
-tests can exercise the anchor-reading/prompt-building/plan-writing logic without a real
-Bedrock call; the CLI/AgentRuntime path leaves it unset and gets the real Strands Agent.
+`agent` is injectable (a callable agent(content, structured_output_model=Model) ->
+result with a `.structured_output` attribute) so tests can exercise the
+anchor-reading/prompt-building/plan-writing logic without a real Bedrock call; the
+CLI/AgentRuntime path leaves it unset and gets the real Strands Agent. We call the
+Strands `Agent` this way (not the deprecated `agent.structured_output(...)`) because
+that older API only ever sends the output-schema tool to the model — never the
+agent's own registered tools (e.g. search_knowledge) — so the model has no way to
+honour SYSTEM_PROMPT's instruction to use search_knowledge for supporting context.
 """
+import html
+from pathlib import Path
+
+import yaml
+
+from sdlc.agents.analyst import anchors
 from sdlc.agents.analyst.anchors import AnchorNotConfirmed, ImageRef, read_anchor
 from sdlc.agents.analyst.plan_schema import SolutionRequirementsPlan
-from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, TicketSystem
+from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, Page, TicketSystem
 
 SYSTEM_PROMPT = (
     "You are the data analyst agent in an Autonomous Data SDLC. Below is the Data "
@@ -53,7 +70,7 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
         )
         from strands.models.anthropic import AnthropicModel
 
-        model = AnthropicModel(client_args={"api_key": anthropic_key}, model_id=model_id)
+        model = AnthropicModel(client_args={"api_key": anthropic_key}, model_id=model_id, max_tokens=128000)
     else:
         model_id = cfg["aws"]["llm_model_id"]
         if not model_id:
@@ -102,6 +119,43 @@ def _plan_markdown(plan: SolutionRequirementsPlan) -> str:
     return "\n".join(lines)
 
 
+def _plan_html(plan: SolutionRequirementsPlan) -> str:
+    e = html.escape
+    parts = [f"<p>{e(plan.summary)}</p>"]
+    workstreams = sorted({r.workstream for r in plan.requirements})
+    for ws in workstreams:
+        parts.append(f"<h2>{e(ws)}</h2>")
+        for r in (r for r in plan.requirements if r.workstream == ws):
+            sr_ids = ", ".join(r.stakeholder_requirement_ids) or "-"
+            ac_items = "".join(f"<li>{e(ac)}</li>" for ac in r.acceptance_criteria)
+            parts.append(
+                f"<h3>{e(r.requirement_id)} {e(r.title)}</h3>"
+                f"<p>{e(r.description)}</p>"
+                f"<p><strong>Acceptance criteria:</strong></p><ul>{ac_items}</ul>"
+                f"<p><strong>Source:</strong> {e(r.source_doc)} § {e(r.source_section)} "
+                f"(stakeholder: {e(sr_ids)})</p>"
+            )
+    return "".join(parts)
+
+
+def _solution_requirements_page_title(use_case: str) -> str:
+    roles = anchors._page_roles(use_case)
+    terms = yaml.safe_load((Path("usecases") / use_case / "terminology.yaml").read_text())["terms"]
+    number = len([r for r in roles if r != "usecase_root"]) + 1
+    return f"{number}. {terms['solution_requirements']}"
+
+
+def _publish_plan_page(plan: SolutionRequirementsPlan, *, use_case: str, doc_source: DocumentSource,
+                        dry_run: bool) -> Page:
+    title = _solution_requirements_page_title(use_case)
+    body_html = _plan_html(plan)
+    existing = doc_source.find_page_by_title(title)
+    if existing:
+        return doc_source.append_to_page(existing.page_id, body_html, dry_run=dry_run)
+    parent_id = anchors.resolve_anchor_page_id("usecase_root", use_case=use_case, doc_source=doc_source)
+    return doc_source.create_page(parent_id, title, body_html, dry_run=dry_run)
+
+
 def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
                                knowledge_index: KnowledgeIndex, tickets: TicketSystem,
                                store: ObjectStore, cfg: dict, dry_run: bool = True,
@@ -122,11 +176,12 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
         return {"status": "blocked", "reason": str(exc)}
 
     agent = agent or _build_real_agent(knowledge_index, use_case, cfg)
-    plan = agent.structured_output(SolutionRequirementsPlan, _content_blocks(dds, tds))
+    plan = agent(_content_blocks(dds, tds), structured_output_model=SolutionRequirementsPlan).structured_output
     plan.use_case = use_case
 
     store.put_json(f"workflow/{use_case}/plan.json", plan.model_dump(), dry_run=dry_run)
     store.put_bytes(f"workflow/{use_case}/plan.md", _plan_markdown(plan).encode(), dry_run=dry_run)
+    page = _publish_plan_page(plan, use_case=use_case, doc_source=doc_source, dry_run=dry_run)
 
     workstream_count = len({r.workstream for r in plan.requirements})
     tickets.add_comment(
@@ -136,4 +191,5 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
         f"label to apply it, or '{cfg['jira']['reject_label']}' to regenerate.",
         dry_run=dry_run,
     )
+    tickets.add_remote_link(issue_key, page.url, page.title, dry_run=dry_run)
     return {"status": "planned", "requirement_count": len(plan.requirements)}

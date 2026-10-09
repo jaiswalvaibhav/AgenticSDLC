@@ -11,17 +11,23 @@ from sdlc.agents.analyst.plan_schema import Requirement, SolutionRequirementsPla
 UC = "demo_order_fulfilment"
 
 
+class _FakeAgentResult:
+    def __init__(self, structured_output):
+        self.structured_output = structured_output
+
+
 class FakeStrandsAgent:
     """Records the content it was called with and returns a canned plan — stands in
-    for `strands.Agent.structured_output` without a real Bedrock call."""
+    for `strands.Agent(content, structured_output_model=...)` without a real Bedrock
+    call."""
 
     def __init__(self, plan: SolutionRequirementsPlan):
         self.plan = plan
         self.calls: list[tuple[type, list[dict]]] = []
 
-    def structured_output(self, model, content):
-        self.calls.append((model, content))
-        return self.plan
+    def __call__(self, content, structured_output_model):
+        self.calls.append((structured_output_model, content))
+        return _FakeAgentResult(self.plan)
 
 
 @pytest.fixture
@@ -44,7 +50,8 @@ def _seed_anchor(tmp_path: Path, store: FakeObjectStore, page_id: str, title: st
 def page_roles(monkeypatch):
     monkeypatch.setattr(
         "sdlc.agents.analyst.anchors._page_roles",
-        lambda use_case: {"data_design_solution": {"page_id": "1"},
+        lambda use_case: {"usecase_root": {"page_id": "0"},
+                           "data_design_solution": {"page_id": "1"},
                            "technical_design_solution": {"page_id": "2"}},
     )
 
@@ -53,6 +60,8 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     store = FakeObjectStore()
     _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>Layers</h2><p>Raw, Curated.</p>")
     _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>Pipeline</h2><p>Daily batch.</p>")
+    doc_source = FakeDocumentSource()
+    doc_source.add_page("Order Fulfilment Performance", page_id="0")
     tickets = FakeTicketSystem()
     issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
     plan = SolutionRequirementsPlan(summary="Two requirements.", requirements=[
@@ -64,7 +73,7 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     fake_agent = FakeStrandsAgent(plan)
 
     result = run_solution_requirements(
-        {"use_case": UC, "issue_key": issue.key}, doc_source=FakeDocumentSource(),
+        {"use_case": UC, "issue_key": issue.key}, doc_source=doc_source,
         knowledge_index=FakeKnowledgeIndex(), tickets=tickets, store=store, cfg=cfg,
         dry_run=False, agent=fake_agent,
     )
@@ -81,9 +90,20 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     plan_md = store.get_bytes(f"workflow/{UC}/plan.md").decode()
     assert "REQ-1" in plan_md and "raw_ingestion" in plan_md
 
+    # the full plan was also published as a Confluence page under the use case root,
+    # not just the short summary that goes in the Jira comment
+    plan_page = doc_source.find_page_by_title("3. Solution Requirements")
+    assert plan_page is not None
+    assert "REQ-1" in plan_page.html and "Lands by 3am" in plan_page.html
+
     comment = tickets.comments[issue.key][0]
     assert "1 requirements" in comment
     assert "sdlc-approved" in comment
+
+    # and the Jira issue got a remote link to that page
+    [(url, title)] = tickets.remote_links[issue.key]
+    assert url == plan_page.url
+    assert title == "3. Solution Requirements"
 
 
 def test_blocked_when_anchor_not_configured(tmp_path, cfg, monkeypatch):
