@@ -27,20 +27,46 @@ SYSTEM_PROMPT = (
 
 
 def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict):
-    model_id = cfg["aws"]["llm_model_id"]
-    if not model_id:
-        raise ValueError(
-            "config.yaml aws.llm_model_id is not set. Find a Claude inference profile id "
-            "enabled on this account with: aws bedrock list-inference-profiles "
-            f"--region {cfg['aws']['region']} (ap-southeast-2 needs a cross-region "
-            "inference profile, not a plain foundation-model id — see CLAUDE.md)."
-        )
+    import os
+
     from strands import Agent
-    from strands.models import BedrockModel
 
     from sdlc.agents.analyst.tools import make_search_knowledge_tool
 
-    model = BedrockModel(model_id=model_id, region_name=cfg["aws"]["region"])
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if cfg["profile"] == "local" and anthropic_key:
+        # Stopgap until Bedrock Claude model access is granted on this account (see
+        # CLAUDE.md "Decisions"). local-profile only — never used by the aws profile's
+        # Lambda/AgentCore path. Billed to the user's own Anthropic API key, so this
+        # always asks before spending it.
+        # claude-sonnet-5-5 rejects forced tool_choice ("any"/"tool"), which Strands'
+        # structured_output() hardcodes — verified against the installed strands-agents
+        # 1.58.1. claude-sonnet-5 has no such restriction. Revisit once Strands supports
+        # the newer structured-outputs API for this model family.
+        model_id = os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-5")
+        import typer
+
+        typer.confirm(
+            f"About to call the Anthropic API directly (model={model_id}), billed to "
+            "your ANTHROPIC_API_KEY, not AWS Bedrock. Continue?",
+            abort=True,
+        )
+        from strands.models.anthropic import AnthropicModel
+
+        model = AnthropicModel(client_args={"api_key": anthropic_key}, model_id=model_id)
+    else:
+        model_id = cfg["aws"]["llm_model_id"]
+        if not model_id:
+            raise ValueError(
+                "config.yaml aws.llm_model_id is not set. Find a Claude inference profile id "
+                "enabled on this account with: aws bedrock list-inference-profiles "
+                f"--region {cfg['aws']['region']} (ap-southeast-2 needs a cross-region "
+                "inference profile, not a plain foundation-model id — see CLAUDE.md)."
+            )
+        from strands.models import BedrockModel
+
+        model = BedrockModel(model_id=model_id, region_name=cfg["aws"]["region"])
+
     return Agent(model=model, tools=[make_search_knowledge_tool(knowledge_index, use_case)],
                  system_prompt=SYSTEM_PROMPT)
 

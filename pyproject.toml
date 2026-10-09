@@ -14,7 +14,7 @@ dependencies = [
     "python-dotenv",
     "pyyaml",
     "requests",
-    "strands-agents",
+    "strands-agents[anthropic]",  # anthropic extra: local-only Bedrock stopgap, see CLAUDE.md
     "typer",
     "weasyprint",  # needs system Pango/Cairo/GDK-Pixbuf; see src/sdlc/pdf.py
 ]

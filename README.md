@@ -106,6 +106,16 @@ uv run sdlc analyst-plan --use-case demo_order_fulfilment --step solution_requir
 uv run sdlc analyst-apply --use-case demo_order_fulfilment --step solution_requirements --no-dry-run
 ```
 
+### No Bedrock Claude model access yet?
+
+The analyst agent normally calls Claude through Bedrock. If Bedrock model access isn't
+granted yet on your AWS account, set `ANTHROPIC_API_KEY` (and optionally
+`ANTHROPIC_MODEL_ID`, default `claude-sonnet-5`) in `.env` — `profile: local` only, see
+`.env.example`. The agent then calls the Anthropic API directly instead, and asks you to
+confirm before every call since it's billed to your own key. Knowledge Base search is
+unaffected (it's a separate Bedrock call that doesn't need Claude model access). Remove
+the env var once Bedrock access lands.
+
 ## AWS quick start (`profile: aws`)
 
 Set `profile: aws` in `config.yaml`, then deploy the agent infra (the AgentCore

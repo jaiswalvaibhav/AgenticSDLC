@@ -96,3 +96,32 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
 - Fixed a bug in the test helper itself while writing these: `FakeSession`'s first cut matched responses by substring-in-url, which is ambiguous when adapter URLs share long prefixes (e.g. `.../wiki/api/v2/pages` vs `.../wiki/api/v2/pages/1`); switched to suffix matching (`url.endswith(...)`), with longest-match as a tiebreaker.
 - Removed two genuinely unused imports (`Path` in `engine.py`, `field` in `tests/_mock_http.py`), found via a small one-off AST script rather than adding a linter dependency for a one-time pass.
 - Not added: a linter/formatter dependency (ruff etc.) — out of scope for "minimal code," and nothing in the brief asked for one.
+
+## Decisions (local-only Anthropic API stopgap)
+- While Bedrock Claude model access and AgentCore access are both still pending on the AWS
+  account, `engine._build_real_agent` can call the Anthropic API directly instead of
+  Bedrock: if `cfg["profile"] == "local"` and `ANTHROPIC_API_KEY` is set, it builds a Strands
+  `AnthropicModel(client_args={"api_key": ...}, model_id=...)` (verified against the installed
+  `strands-agents[anthropic]` extra's `strands/models/anthropic.py`) instead of `BedrockModel`.
+  The `aws` profile (Lambda/AgentCore) never takes this branch regardless of the env var.
+- `ANTHROPIC_MODEL_ID` env var selects the model, defaulting to `claude-sonnet-5` — chosen
+  over Haiku because this task (multi-section DDS/TDS synthesis with section/requirement-id
+  citations, feeding real Jira tickets) needs Sonnet-tier reasoning quality, matching the
+  Sonnet-class model already used on the Bedrock path.
+- **Not `claude-sonnet-5-5`**, despite it being the newer/cheaper Sonnet: verified live (a
+  real `messages.create` call, user-approved) that it rejects forced `tool_choice`
+  (`"tool_choice: type \"tool\" and \"any\" are not supported for this model."`), and the
+  installed `strands-agents` 1.58.1's `AnthropicModel.structured_output()` hardcodes
+  `tool_choice={"any": {}}` — so `claude-sonnet-5-5` breaks plan generation outright.
+  `claude-sonnet-5` has no such restriction (also verified live). Revisit the default once
+  Strands supports the newer structured-outputs API for this Claude generation, or ships an
+  `AnthropicModel` fix.
+- This is billed to the user's personal Anthropic API key, not AWS, so `_build_real_agent`
+  calls `typer.confirm(..., abort=True)` immediately before constructing the `AnthropicModel`
+  every time this path is taken — the user confirmed they want to approve each call, not just
+  once per session.
+- KB retrieval (`search_knowledge`) is unaffected: it's a separate Bedrock `Retrieve` call
+  against the existing Managed KB/S3 bucket, which only needs AWS credentials with Bedrock
+  Agent Runtime + S3 permissions — not Claude model access.
+- Treat this as a temporary workaround to delete once Bedrock Claude model access lands, not
+  a permanent second LLM provider path.
