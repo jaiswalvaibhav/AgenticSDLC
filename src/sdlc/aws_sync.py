@@ -56,32 +56,34 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
         if entry.get("rendered_version") == entry["version"]:
             continue
         page_dir = data_dir / "corpus" / entry["path"]
-        meta = json.loads((page_dir / "meta.json").read_text())
+        # meta = json.loads((page_dir / "meta.json").read_text())  # only used by the disabled metadata block below
         pdf_bytes = render_page_pdf(page_dir)
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
         key = _pdf_key(docs_prefix, use_case, page_id)
+        # TEMPORARILY DISABLED along with the .metadata.json upload/delete below.
         # S3 data source metadata sidecars take flat values, not the {"value": {"type":
         # ...}} shape (that's IngestKnowledgeBaseDocuments' format, for a different, non-S3
         # ingestion path) — confirmed live: the wrapped form ingested with no error but
         # silently dropped every custom field, leaving only Bedrock's built-in `_...` ones.
-        metadata = {
-            "metadataAttributes": {
-                "use_case": use_case,
-                "space": meta["spaceKey"],
-                "page_id": page_id,
-                "title": meta["title"],
-                "url": meta["url"],
-                "version": meta["version"],
-            }
-        }
+        # metadata = {
+        #     "metadataAttributes": {
+        #         "use_case": use_case,
+        #         "space": meta["spaceKey"],
+        #         "page_id": page_id,
+        #         "title": meta["title"],
+        #         "url": meta["url"],
+        #         "version": meta["version"],
+        #     }
+        # }
         if dry_run:
-            print(f"[dry-run] would upload s3://{bucket}/{key} ({len(pdf_bytes)} bytes) "
-                  f"+ {key}.metadata.json")
+            print(f"[dry-run] would upload s3://{bucket}/{key} ({len(pdf_bytes)} bytes)")
         else:
             s3.put_object(Bucket=bucket, Key=key, Body=pdf_bytes, ContentType="application/pdf")
-            s3.put_object(Bucket=bucket, Key=f"{key}.metadata.json",
-                           Body=json.dumps(metadata).encode(), ContentType="application/json")
+            # TEMPORARILY DISABLED: .metadata.json sidecar upload (see _pdf_key's docstring
+            # — this account's region doesn't scan/apply it anyway). Restore by uncommenting.
+            # s3.put_object(Bucket=bucket, Key=f"{key}.metadata.json",
+            #                Body=json.dumps(metadata).encode(), ContentType="application/json")
             entry["pdf_hash"] = pdf_hash
             entry["s3_key"] = key
             entry["rendered_version"] = entry["version"]
@@ -97,10 +99,11 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
             if key.endswith(".metadata.json") or key in manifest_keys:
                 continue
             if dry_run:
-                print(f"[dry-run] would delete orphaned s3://{bucket}/{key} (+ .metadata.json)")
+                print(f"[dry-run] would delete orphaned s3://{bucket}/{key}")
             else:
                 s3.delete_object(Bucket=bucket, Key=key)
-                s3.delete_object(Bucket=bucket, Key=f"{key}.metadata.json")
+                # TEMPORARILY DISABLED: see the matching upload-side disable above.
+                # s3.delete_object(Bucket=bucket, Key=f"{key}.metadata.json")
             result.deleted.append(key)
 
     store.put_json("manifest.json", manifest, dry_run=dry_run)
