@@ -109,12 +109,21 @@ uv run sdlc analyst-apply --use-case demo_order_fulfilment --step solution_requi
 ### No Bedrock Claude model access yet?
 
 The analyst agent normally calls Claude through Bedrock. If Bedrock model access isn't
-granted yet on your AWS account, set `ANTHROPIC_API_KEY` (and optionally
-`ANTHROPIC_MODEL_ID`, default `claude-sonnet-5`) in `.env` — `profile: local` only, see
-`.env.example`. The agent then calls the Anthropic API directly instead, and asks you to
-confirm before every call since it's billed to your own key. Knowledge Base search is
-unaffected (it's a separate Bedrock call that doesn't need Claude model access). Remove
-the env var once Bedrock access lands.
+granted yet on your AWS account, set `ANALYST_LLM_PROVIDER` to `anthropic` or `gemini` in
+`.env` — `profile: local` only, see `.env.example`:
+
+- `anthropic`: set `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_MODEL_ID`, default
+  `claude-sonnet-5`). The agent calls the Anthropic API directly, billed to your own key.
+- `gemini`: run `gcloud auth application-default login` once, then set
+  `GOOGLE_CLOUD_PROJECT` (and optionally `GOOGLE_CLOUD_LOCATION`, default `us-central1`,
+  and `GEMINI_MODEL_ID`, default `gemini-3.8-flash`). The agent calls Gemini via Vertex AI
+  using those Application Default Credentials — no API key needed, billed to that GCP
+  project.
+
+Either way you're asked to confirm before every call since it's billed to your own
+account, not AWS. Knowledge Base search is unaffected (it's a separate Bedrock call that
+doesn't need Claude model access). Remove `ANALYST_LLM_PROVIDER` once Bedrock access
+lands.
 
 ## AWS quick start (`profile: aws`)
 

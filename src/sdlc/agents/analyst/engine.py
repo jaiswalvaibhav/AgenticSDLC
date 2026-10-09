@@ -1,5 +1,7 @@
 """Real implementation of the `solution_requirements` analyst task: Strands + Bedrock
-Claude, full anchor reads (DDS/TDS, section by section, diagrams as images), the
+Claude (or, for profile: local only, the Anthropic/Gemini stopgaps — see
+_build_local_llm_model), full anchor reads (DDS/TDS, section by section, diagrams as
+images), the
 search_knowledge tool for supporting pages, and a structured plan.json/plan.md output.
 
 Besides plan.json/plan.md in the ObjectStore (.state/ for profile: local, S3 for
@@ -43,26 +45,23 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict):
+def _build_local_llm_model(provider: str):
+    """Build the Strands model for one of the local-only, non-Bedrock stopgap providers.
+
+    Both are billed to the user's own account rather than AWS, so both confirm before
+    every call — see CLAUDE.md "Decisions (local-only Anthropic API stopgap)".
+    """
     import os
 
-    from strands import Agent
+    import typer
 
-    from sdlc.agents.analyst.tools import make_search_knowledge_tool
-
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    if cfg["profile"] == "local" and anthropic_key:
-        # Stopgap until Bedrock Claude model access is granted on this account (see
-        # CLAUDE.md "Decisions"). local-profile only — never used by the aws profile's
-        # Lambda/AgentCore path. Billed to the user's own Anthropic API key, so this
-        # always asks before spending it.
+    if provider == "anthropic":
+        anthropic_key = os.environ["ANTHROPIC_API_KEY"]
         # claude-sonnet-5-5 rejects forced tool_choice ("any"/"tool"), which Strands'
         # structured_output() hardcodes — verified against the installed strands-agents
         # 1.58.1. claude-sonnet-5 has no such restriction. Revisit once Strands supports
         # the newer structured-outputs API for this model family.
         model_id = os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-5")
-        import typer
-
         typer.confirm(
             f"About to call the Anthropic API directly (model={model_id}), billed to "
             "your ANTHROPIC_API_KEY, not AWS Bedrock. Continue?",
@@ -70,7 +69,45 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
         )
         from strands.models.anthropic import AnthropicModel
 
-        model = AnthropicModel(client_args={"api_key": anthropic_key}, model_id=model_id, max_tokens=128000)
+        return AnthropicModel(client_args={"api_key": anthropic_key}, model_id=model_id, max_tokens=128000)
+
+    if provider == "gemini":
+        project = os.environ["GOOGLE_CLOUD_PROJECT"]
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+        # gemini-3.8-flash is the user's own choice of default (not independently
+        # doc-verified against ai.google.dev/gemini-api/docs/models this session) —
+        # override with GEMINI_MODEL_ID if it's wrong/unavailable on your project.
+        model_id = os.environ.get("GEMINI_MODEL_ID", "gemini-3.8-flash")
+        typer.confirm(
+            f"About to call the Gemini API via Vertex AI (model={model_id}, "
+            f"project={project}), billed to that GCP project, not AWS Bedrock. Uses "
+            "Application Default Credentials — run `gcloud auth application-default "
+            "login` first if you haven't. Continue?",
+            abort=True,
+        )
+        from strands.models.gemini import GeminiModel
+
+        return GeminiModel(
+            client_args={"vertexai": True, "project": project, "location": location},
+            model_id=model_id,
+        )
+
+    raise ValueError(f"Unknown ANALYST_LLM_PROVIDER={provider!r} (expected 'anthropic' or 'gemini')")
+
+
+def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict):
+    import os
+
+    from strands import Agent
+
+    from sdlc.agents.analyst.tools import make_search_knowledge_tool
+
+    provider = os.environ.get("ANALYST_LLM_PROVIDER")
+    if cfg["profile"] == "local" and provider:
+        # Stopgap until Bedrock Claude model access is granted on this account (see
+        # CLAUDE.md "Decisions"). local-profile only — never used by the aws profile's
+        # Lambda/AgentCore path.
+        model = _build_local_llm_model(provider)
     else:
         model_id = cfg["aws"]["llm_model_id"]
         if not model_id:

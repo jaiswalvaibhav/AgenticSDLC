@@ -99,11 +99,25 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
 
 ## Decisions (local-only Anthropic API stopgap)
 - While Bedrock Claude model access and AgentCore access are both still pending on the AWS
-  account, `engine._build_real_agent` can call the Anthropic API directly instead of
-  Bedrock: if `cfg["profile"] == "local"` and `ANTHROPIC_API_KEY` is set, it builds a Strands
-  `AnthropicModel(client_args={"api_key": ...}, model_id=...)` (verified against the installed
-  `strands-agents[anthropic]` extra's `strands/models/anthropic.py`) instead of `BedrockModel`.
-  The `aws` profile (Lambda/AgentCore) never takes this branch regardless of the env var.
+  account, `engine._build_real_agent` can call the Anthropic or Gemini APIs directly instead
+  of Bedrock, for `profile: local` only: set `ANALYST_LLM_PROVIDER=anthropic` or `=gemini`
+  (unset, or any value when `profile: aws`, keeps the Bedrock path). The `aws` profile
+  (Lambda/AgentCore) never takes either branch regardless of the env var.
+  - `anthropic`: builds a Strands `AnthropicModel(client_args={"api_key": ...}, model_id=...)`
+    from `ANTHROPIC_API_KEY` (verified against the installed `strands-agents[anthropic]`
+    extra's `strands/models/anthropic.py`) instead of `BedrockModel`.
+  - `gemini`: builds a Strands `GeminiModel(client_args={"vertexai": True, "project": ...,
+    "location": ...}, model_id=...)` (verified against the installed `strands-agents[gemini]`
+    extra's `strands/models/gemini.py`), authenticating via Application Default Credentials —
+    run `gcloud auth application-default login` once in the terminal, then set
+    `GOOGLE_CLOUD_PROJECT` (required) and optionally `GOOGLE_CLOUD_LOCATION` (default
+    `us-central1`). No API key is used. `GEMINI_MODEL_ID` default `gemini-3.8-flash` is the
+    user's own pick, not independently doc-verified against ai.google.dev this session —
+    override it if that id is wrong/unavailable on your project.
+  - Both are billed to the user's own account (Anthropic key / GCP project), not AWS, so
+    `_build_local_llm_model` calls `typer.confirm(..., abort=True)` before constructing either
+    model, every time — the user confirmed they want to approve each call, not just once per
+    session.
 - `ANTHROPIC_MODEL_ID` env var selects the model, defaulting to `claude-sonnet-5` — chosen
   over Haiku because this task (multi-section DDS/TDS synthesis with section/requirement-id
   citations, feeding real Jira tickets) needs Sonnet-tier reasoning quality, matching the
@@ -116,10 +130,6 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
   `claude-sonnet-5` has no such restriction (also verified live). Revisit the default once
   Strands supports the newer structured-outputs API for this Claude generation, or ships an
   `AnthropicModel` fix.
-- This is billed to the user's personal Anthropic API key, not AWS, so `_build_real_agent`
-  calls `typer.confirm(..., abort=True)` immediately before constructing the `AnthropicModel`
-  every time this path is taken — the user confirmed they want to approve each call, not just
-  once per session.
 - KB retrieval (`search_knowledge`) is unaffected: it's a separate Bedrock `Retrieve` call
   against the existing Managed KB/S3 bucket, which only needs AWS credentials with Bedrock
   Agent Runtime + S3 permissions — not Claude model access.
