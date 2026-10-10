@@ -160,3 +160,49 @@ def test_add_issues_to_sprint_dry_run_makes_no_calls(client):
 def test_add_issues_to_sprint_skips_call_when_no_keys(client):
     client.add_issues_to_sprint("7", [], dry_run=False)
     assert client._session.calls == []
+
+
+def test_get_issue_parses_description_comments_attachments_and_updated(client):
+    client._session.queue("GET", "/issue/DEMO-1", FakeResponse({"fields": {
+        "issuetype": {"name": "Story"}, "status": {"name": "To Do"}, "summary": "Ingest Orders",
+        "labels": [], "parent": None, "assignee": None, "updated": "2026-01-01T00:00:00.000+0000",
+        "description": {"type": "doc", "version": 1, "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Do the thing."}]}]},
+        "comment": {"comments": [{"body": {"type": "doc", "version": 1, "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "A comment."}]}]}}]},
+        "attachment": [{"id": "att1", "filename": "diagram.png", "mimeType": "image/png",
+                         "size": 1234, "content": "https://x.atlassian.net/attachment/att1"}],
+    }}))
+
+    issue = client.get_issue("DEMO-1")
+
+    assert issue.updated == "2026-01-01T00:00:00.000+0000"
+    assert issue.description == "Do the thing."
+    assert issue.comments == ["A comment."]
+    assert len(issue.attachments) == 1
+    assert issue.attachments[0].attachment_id == "att1"
+    assert issue.attachments[0].download_url == "https://x.atlassian.net/attachment/att1"
+    assert issue.attachments[0].file_size == 1234
+
+
+def test_get_attachments_parses_attachment_list(client):
+    client._session.queue("GET", "/issue/DEMO-1", FakeResponse({"fields": {"attachment": [
+        {"id": "att1", "filename": "sheet.xlsx", "mimeType": "application/vnd.ms-excel",
+         "size": 999, "content": "https://x.atlassian.net/attachment/att1"},
+    ]}}))
+
+    attachments = client.get_attachments("DEMO-1")
+
+    assert len(attachments) == 1
+    assert attachments[0].title == "sheet.xlsx"
+    assert attachments[0].media_type == "application/vnd.ms-excel"
+
+
+def test_download_attachment_gets_content_url(client):
+    from sdlc.ports import Attachment
+    client._session.queue("GET", "/attachment/att1", FakeResponse(content=b"BYTES"))
+
+    data = client.download_attachment(Attachment(attachment_id="att1", title="x",
+                                                   media_type="x", download_url="https://x.atlassian.net/attachment/att1"))
+
+    assert data == b"BYTES"

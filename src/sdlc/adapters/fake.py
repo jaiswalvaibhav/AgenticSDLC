@@ -120,6 +120,20 @@ class FakeTicketSystem:
         self.properties: dict[str, dict] = {}  # key -> {property_key: value}
         self.sprints: dict[str, list[str]] = {}  # sprint_id -> issue keys
         self._future_sprint_id: str | None = None
+        self.attachments: dict[str, list[Attachment]] = {}  # issue key -> attachments
+        self.attachment_bytes: dict[str, bytes] = {}
+
+    def add_issue(self, key: str, issue_type: str, summary: str, *, status: str = "To Do",
+                  parent_key: str | None = None, description: str = "",
+                  comments: list[str] | None = None, updated: str = "",
+                  labels: list[str] | None = None) -> Issue:
+        """Test helper: seed an issue directly (bypassing create_issue's dry-run
+        default), mirroring FakeDocumentSource.add_page."""
+        issue = Issue(key=key, issue_type=issue_type, status=status, summary=summary,
+                      labels=labels or [], parent_key=parent_key, description=description,
+                      comments=comments or [], updated=updated)
+        self.issues[key] = issue
+        return issue
 
     def create_issue(self, issue_type, summary, *, parent_key=None, description="",
                       labels=None, assignee=None, component=None, dry_run=True) -> Issue:
@@ -132,7 +146,15 @@ class FakeTicketSystem:
         return issue
 
     def get_issue(self, key: str) -> Issue:
-        return self.issues[key]
+        issue = self.issues[key]
+        issue.attachments = self.attachments.get(key, issue.attachments)
+        return issue
+
+    def get_attachments(self, key: str) -> list[Attachment]:
+        return self.attachments.get(key, [])
+
+    def download_attachment(self, attachment: Attachment) -> bytes:
+        return self.attachment_bytes.get(attachment.attachment_id, b"")
 
     def find_issue_by_label(self, label: str) -> Issue | None:
         return next((i for i in self.issues.values() if label in i.labels), None)

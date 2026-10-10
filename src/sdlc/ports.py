@@ -34,6 +34,10 @@ class Issue:
     parent_key: str | None = None
     assignee: str | None = None
     properties: dict = field(default_factory=dict)
+    description: str = ""
+    comments: list[str] = field(default_factory=list)
+    attachments: list[Attachment] = field(default_factory=list)
+    updated: str = ""  # ISO timestamp; used by jira_sync.py as the change-detection key
 
 
 @dataclass
@@ -98,6 +102,8 @@ class TicketSystem(Protocol):
     def has_artifact(self, key: str) -> bool: ...
     def status_changes_since(self, key: str, since: str) -> list[StatusEvent]: ...
     def set_property(self, key: str, property_key: str, value: dict, dry_run: bool = True) -> None: ...
+    def get_attachments(self, key: str) -> list[Attachment]: ...
+    def download_attachment(self, attachment: Attachment) -> bytes: ...
 
 
 class StatusSource(Protocol):

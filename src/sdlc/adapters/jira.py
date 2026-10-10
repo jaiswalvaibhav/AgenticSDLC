@@ -20,7 +20,14 @@ guidance, except where noted:
 - PUT  /rest/api/3/issue/{key}                -> {"update": {"labels": [{"add": "..."}]}}
 - POST /rest/api/3/issueLink                  -> {"type": {"name": "Blocks"}, "inwardIssue", "outwardIssue"}
 - POST /rest/api/3/issue/{key}/remotelink     -> {"object": {"url": "...", "title": "..."}}
-- GET  /rest/api/3/issue/{key}?fields=attachment -> fields.attachment is a list
+- GET  /rest/api/3/issue/{key}?fields=attachment -> fields.attachment is a list of
+  {id, filename, mimeType, size, content}. **NOT independently doc-verified this
+  session** (same caveat as the changelog shape below) — this is the long-standing
+  documented Jira Cloud attachment object shape; check it against a real response
+  from your instance before relying on it for jira_sync.py's downloader.
+- fields.description / fields.comment.comments[].body are ADF documents, same shape
+  _to_adf produces for writes; adf_to_text() below is the read-side counterpart
+  (minimal — only the node types this instance's own content actually uses).
 
 Sprint placement uses the separate Jira Software "Agile" REST root, /rest/agile/1.0
 (not /rest/api/3) — verified live against a real Jira Cloud site (Oct 2026):
@@ -40,7 +47,7 @@ import base64
 
 import requests
 
-from sdlc.ports import Issue, StatusEvent, TransitionNotAvailable
+from sdlc.ports import Attachment, Issue, StatusEvent, TransitionNotAvailable
 
 
 def _to_adf(text: str) -> dict:
@@ -50,6 +57,38 @@ def _to_adf(text: str) -> dict:
         "content": [{"type": "paragraph", "content": [{"type": "text", "text": p}]}
                     for p in paragraphs if p] or [{"type": "paragraph", "content": []}],
     }
+
+
+def adf_to_text(node: dict | None) -> str:
+    """Minimal ADF -> plain text renderer for reading descriptions/comments back out
+    (no reverse of _to_adf existed before jira_sync.py needed one). Handles only the
+    node types Jira actually emits for this instance's issue content — not a general
+    ADF renderer."""
+    if not node:
+        return ""
+    node_type = node.get("type")
+    content = node.get("content", [])
+    if node_type == "text":
+        return node.get("text", "")
+    if node_type == "doc":
+        return "\n\n".join(adf_to_text(c) for c in content).strip()
+    if node_type == "paragraph":
+        return "".join(adf_to_text(c) for c in content)
+    if node_type == "heading":
+        return "## " + "".join(adf_to_text(c) for c in content)
+    if node_type in ("bulletList", "orderedList"):
+        return "\n".join(adf_to_text(c) for c in content)
+    if node_type == "listItem":
+        return "- " + "".join(adf_to_text(c) for c in content)
+    if node_type == "codeBlock":
+        return "```\n" + "".join(adf_to_text(c) for c in content) + "\n```"
+    return "".join(adf_to_text(c) for c in content)
+
+
+def _attachment_from_json(item: dict) -> Attachment:
+    return Attachment(attachment_id=item["id"], title=item["filename"],
+                       media_type=item.get("mimeType", ""), download_url=item["content"],
+                       file_size=item.get("size", 0))
 
 
 class JiraClient:
@@ -96,11 +135,16 @@ class JiraClient:
     def _issue_from_fields(self, key: str, fields: dict) -> Issue:
         parent = fields.get("parent")
         assignee = fields.get("assignee")
+        comments = [adf_to_text(c["body"]) for c in fields.get("comment", {}).get("comments", [])] \
+            if fields.get("comment") else []
+        attachments = [_attachment_from_json(a) for a in fields.get("attachment", []) or []]
         return Issue(
             key=key, issue_type=fields["issuetype"]["name"], status=fields["status"]["name"],
             summary=fields.get("summary", ""), labels=fields.get("labels", []) or [],
             parent_key=parent["key"] if parent else None,
             assignee=assignee["accountId"] if assignee else None,
+            description=adf_to_text(fields.get("description")),
+            comments=comments, attachments=attachments, updated=fields.get("updated", ""),
         )
 
     # -- TicketSystem ------------------------------------------------------
@@ -133,8 +177,18 @@ class JiraClient:
         return self.get_issue(data["key"])
 
     def get_issue(self, key: str) -> Issue:
-        data = self._get(f"/issue/{key}", params={"fields": "summary,status,labels,parent,assignee,issuetype"})
+        data = self._get(f"/issue/{key}", params={
+            "fields": "summary,status,labels,parent,assignee,issuetype,description,comment,attachment,updated"})
         return self._issue_from_fields(key, data["fields"])
+
+    def get_attachments(self, key: str) -> list[Attachment]:
+        data = self._get(f"/issue/{key}", params={"fields": "attachment"})
+        return [_attachment_from_json(a) for a in data["fields"].get("attachment", []) or []]
+
+    def download_attachment(self, attachment: Attachment) -> bytes:
+        resp = self._session.get(attachment.download_url)
+        resp.raise_for_status()
+        return resp.content
 
     def find_issue_by_label(self, label: str) -> Issue | None:
         results = self.search(f'project = "{self.project_key}" AND labels = "{label}"')

@@ -8,9 +8,13 @@ from sdlc.agents.analyst.tasks import TASKS
 from sdlc.aws import agent_deploy as agent_deploy_mod
 from sdlc.aws import deploy as aws_deploy_mod
 from sdlc.aws import destroy as aws_destroy_mod
+from sdlc.aws import jira_kb_deploy as jira_kb_deploy_mod
 from sdlc.aws_sync import aws_sync as run_aws_sync
 from sdlc.config import load_config, masked
 from sdlc.confluence_sync import sync_tree
+from sdlc.jira_aws_sync import jira_aws_sync as run_jira_aws_sync
+from sdlc.jira_citations import jira_url_from_s3_uri
+from sdlc.jira_sync import sync_issues as sync_jira_issues
 from sdlc.seed import seed_usecase
 from sdlc.sync_once import sync_once
 from sdlc.wiring import agent_runtime, confluence_client, jira_client, object_store
@@ -53,7 +57,7 @@ def sync(root_page_id: str = typer.Option(..., "--root-page-id", help="Confluenc
     result = sync_tree(client, store, root_page_id=root_page_id, data_dir=cfg["data_dir"], dry_run=dry_run)
     typer.echo(f"created={len(result.created)} updated={len(result.updated)} "
                f"moved={len(result.moved)} deleted={len(result.deleted)} "
-               f"unchanged={len(result.unchanged)}")
+               f"unchanged={len(result.unchanged)} failed={len(result.failed)}")
 
 
 @app.command()
@@ -64,6 +68,58 @@ def search(query: str, top_k: int = 10) -> None:
                                    region=cfg["aws"]["region"])
     for chunk in index.search(query, use_case=cfg["use_case"], top_k=top_k):
         typer.echo(f"[{chunk.score:.3f}] {chunk.page_title}  ({chunk.page_url})")
+        typer.echo(f"    {chunk.text[:300]}")
+        typer.echo(f"    s3: {chunk.s3_uri}\n")
+
+
+@app.command(name="jira-sync")
+def jira_sync_cmd(epic_key: str = typer.Option(..., "--epic-key", help="Jira epic key to download"),
+                   dry_run: bool = True) -> None:
+    """Download a Jira epic + its Stories/Sub-tasks into .data/corpus_jira/, mirroring
+    Jira's own parent hierarchy. Separate from Confluence sync; never run by the
+    orchestrator — always triggered by hand for a specific epic."""
+    cfg = load_config()
+    tickets = jira_client(cfg)
+    store = object_store(cfg)
+    result = sync_jira_issues(tickets, store, epic_key=epic_key, base_url=cfg["atlassian"]["base_url"],
+                               data_dir=cfg["data_dir"], dry_run=dry_run)
+    typer.echo(f"fetched={len(result.fetched)} unchanged={len(result.unchanged)} "
+               f"failed={len(result.failed)}")
+    if result.failed:
+        typer.echo(f"  failed: {result.failed} (will retry on the next jira-sync run)")
+
+
+@app.command(name="jira-kb-create")
+def jira_kb_create(dry_run: bool = True) -> None:
+    """One-time setup: create the separate Managed Knowledge Base + S3 data source
+    for the Jira downloader, reusing the storage stack `aws-deploy` already created.
+    Writes jira_knowledge_base_id/jira_data_source_id back into config.yaml."""
+    jira_kb_deploy_mod.deploy_jira_kb(load_config(), dry_run=dry_run)
+
+
+@app.command(name="jira-aws-sync")
+def jira_aws_sync_cmd(dry_run: bool = True) -> None:
+    """Upload .data/corpus_jira/ to S3 and run ingestion against the Jira Knowledge
+    Base only. Never called by aws-sync or the orchestrator — explicit trigger only."""
+    result = run_jira_aws_sync(load_config(), dry_run=dry_run)
+    typer.echo(f"uploaded={len(result.uploaded)} unchanged={len(result.unchanged)} "
+               f"failed={len(result.failed)} deleted={len(result.deleted)} "
+               f"ingestion_job={result.ingestion_job_id} status={result.ingestion_status}")
+    if result.failed:
+        typer.echo(f"  failed: {result.failed} (will retry on the next jira-aws-sync run)")
+
+
+@app.command(name="jira-search")
+def jira_search(query: str, top_k: int = 10) -> None:
+    """Search the Jira Knowledge Base, scoped to the configured use case. Manual
+    testing command; not wired into the analyst agent's search_knowledge tool."""
+    cfg = load_config()
+    index = BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["jira_knowledge_base_id"],
+                                   region=cfg["aws"]["region"])
+    base_url = cfg["atlassian"]["base_url"]
+    for chunk in index.search(query, use_case=cfg["use_case"], top_k=top_k):
+        jira_url = jira_url_from_s3_uri(chunk.s3_uri, base_url) or chunk.s3_uri
+        typer.echo(f"[{chunk.score:.3f}] {jira_url}")
         typer.echo(f"    {chunk.text[:300]}")
         typer.echo(f"    s3: {chunk.s3_uri}\n")
 

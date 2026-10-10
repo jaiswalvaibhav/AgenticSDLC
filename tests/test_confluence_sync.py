@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from sdlc.adapters.fake import FakeDocumentSource, FakeObjectStore
-from sdlc.confluence_sync import MANIFEST_KEY, sync_tree
+from sdlc.confluence_sync import MANIFEST_KEY, TRACE_KEY, sync_tree
 from sdlc.ports import Attachment
 
 
@@ -100,3 +100,48 @@ def test_dry_run_writes_nothing(tmp_path: Path):
 
     assert not (tmp_path / "corpus").exists()
     assert store.get_json(MANIFEST_KEY) is None
+
+
+def test_failed_page_fetch_does_not_abort_the_rest_of_the_batch(tmp_path: Path):
+    doc = FakeDocumentSource()
+    _seed_tree(doc)
+    store = FakeObjectStore()
+
+    real_get_page = doc.get_page
+
+    def flaky_get_page(page_id):
+        if page_id == "2":
+            raise RuntimeError("Confluence API error")
+        return real_get_page(page_id)
+
+    doc.get_page = flaky_get_page
+
+    result = sync_tree(doc, store, root_page_id="1", data_dir=tmp_path, dry_run=False)
+
+    assert result.failed == ["2"]
+    assert "1" in result.created
+    assert store.get_json(TRACE_KEY)["2"]["status"] == "failed"
+
+
+def test_previously_failed_page_is_retried_even_if_version_unchanged(tmp_path: Path):
+    doc = FakeDocumentSource()
+    _seed_tree(doc)
+    store = FakeObjectStore()
+
+    real_get_page = doc.get_page
+    calls = {"n": 0}
+
+    def flaky_get_page(page_id):
+        if page_id == "2" and calls["n"] == 0:
+            calls["n"] += 1
+            raise RuntimeError("Confluence API error")
+        return real_get_page(page_id)
+
+    doc.get_page = flaky_get_page
+
+    first = sync_tree(doc, store, root_page_id="1", data_dir=tmp_path, dry_run=False)
+    assert first.failed == ["2"]
+
+    second = sync_tree(doc, store, root_page_id="1", data_dir=tmp_path, dry_run=False)
+    assert "2" in second.updated
+    assert store.get_json(TRACE_KEY)["2"]["status"] == "success"

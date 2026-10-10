@@ -168,3 +168,62 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
   same in the issue's history. It now checks the issue's current status and inserts a
   To Do -> In Progress transition first if needed, wrapped in the same `TransitionNotAvailable`
   fallback-to-comment pattern `_start_step`/`_rollup` already use.
+
+## Decisions (Jira downloader — separate pipeline, explicit-trigger only)
+- **Fully separate from the existing workflow**, per the user's explicit requirement: its own
+  Knowledge Base (`aws.jira_knowledge_base_id`/`jira_data_source_id`, created by the new
+  standalone `jira-kb-create` command, reusing the storage stack's bucket + KB service role —
+  no new CloudFormation), its own S3 prefix (`aws.jira_docs_prefix`), and its own CLI commands
+  (`jira-sync`, `jira-aws-sync`, `jira-search`). None of these are called by `workflow start`,
+  `sync-progress`/`watch-progress`, `aws-deploy`, `aws-sync`, or any `orchestrator.py` code
+  path — confirmed by grep, no references exist outside `cli.py` and the new modules
+  themselves.
+- **Markdown, not PDF**, for `issue.md`: Bedrock's S3 data source ingests `.md` directly
+  (verified live, Oct 2026), and unlike Confluence pages, Jira issues have no embedded-diagram
+  requirement forcing an HTML->PDF render step — attachments are uploaded as their own
+  separate S3 objects regardless. No WeasyPrint dependency on this path.
+- **Local corpus mirrors Jira's real hierarchy**, per the user's requirement: scope is
+  `--epic-key` (required, no auto-derivation, no interactive prompt) -> its Stories (`parent =
+  <epicKey>`) -> each Story's Sub-tasks (`parent = <storyKey>`), using the real `parent` links
+  `workflow_start`/`apply_plan` already set. Layout:
+  `.data/corpus_jira/<epicKey>/[<storyKey>/[<subtaskKey>/]]` with `issue.md`, `meta.json`, and
+  every successfully-downloaded attachment file co-located directly in that ticket's own
+  folder — no separate `_attachments/` subfolder (unlike Confluence's corpus), per the user's
+  explicit requirement.
+- **Attachment handling**: Bedrock's S3 data source natively ingests `.txt/.md/.html/
+  .doc/.docx/.csv/.xls/.xlsx/.pdf` and (via multimodal parsing) `.jpeg/.jpg/.png` — verified
+  live, Oct 2026 — with size limits of 3.75MB for images and 50MB for everything else. An
+  attachment outside that extension set or over its size limit, or one that errors on
+  download, is never written to disk; instead it's logged (`print("[error] ...")`) and noted
+  in `issue.md`'s own text (`> Attachment not downloaded: <file> (<reason>)`) plus `meta.json`
+  (`status: "skipped_unsupported_type" | "skipped_too_large" | "failed_download"`) — so its
+  existence is still discoverable even though it's never ingested. The user's explicit choice
+  over building a format-conversion pipeline (e.g. LibreOffice for pptx->pdf).
+- **Download trace + retry, for both Jira and Confluence** — the user's explicit requirement.
+  `jira_sync.py` keeps `jira_trace.json` (ObjectStore, keyed by issue key:
+  `status/error/last_attempt/last_success_updated`); an issue is re-fetched when new, its
+  `updated` changed since the last successful fetch, or its last recorded status was
+  `"failed"`. The same gap existed in `confluence_sync.py` — it had no success/failure record
+  at all, and `list(pool.map(...))` meant the *first* page's exception aborted the entire
+  batch with no partial progress — so the identical trace/retry pattern (`confluence_trace.json`,
+  per-page try/except instead of letting `pool.map` propagate) was added there too.
+- **`jira-aws-sync` has its own upload trace** (`jira_upload_trace.json`), separate from
+  `jira_sync.py`'s download trace: an S3 upload can fail for reasons unrelated to the Jira
+  download (e.g. a transient S3 error), so it needs independent retry bookkeeping, gated on
+  whether the last successful upload's `uploaded_updated` matches the download trace's current
+  `last_success_updated` for that issue.
+- **Traceability back to Jira**: `Chunk.s3_uri`/`location.s3Location.uri` is reliable (unlike
+  the `.metadata.json` sidecar, confirmed non-functional in this account per `bedrock_kb.py`'s
+  own docstring). The issue key is encoded directly in the S3 key path
+  (`.../jira/<epicKey>/[.../<storyKey>/[.../<subtaskKey>/]]...`), and `jira_citations.
+  jira_url_from_s3_uri` turns a hit's `s3_uri` back into a `<base_url>/browse/<key>` link —
+  used by the new `jira-search` CLI command. Per-attachment upload (rather than embedding into
+  one PDF) is a deliberate precision gain: a KB hit on an attachment resolves to exactly that
+  file and its issue, not just "somewhere in this issue."
+- **Not wired into the analyst agent's `search_knowledge` tool** this round — `jira-search` is
+  a separate, manual CLI command for proving the Jira KB out first. Wiring a second
+  `KnowledgeIndex` into the analyst's tool set is a deliberate follow-up, not done here.
+- **jira.py's attachment shape (`fields.attachment[]`: id/filename/mimeType/size/content) is
+  not independently doc-verified this session** — same caveat as the existing changelog shape
+  — it's the long-standing documented Jira Cloud shape, pinned by mocked tests, but check it
+  against a real response from your instance before relying on it.

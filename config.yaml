@@ -27,10 +27,13 @@ aws:
   region: ap-southeast-2
   bucket: agentic-sdlc-state
   docs_prefix: confluence/
+  jira_docs_prefix: jira/
   state_prefix: state/
   stack_prefix: sdlc
   knowledge_base_id: 1IMYCIP6SW
   data_source_id: KVKVRRWGEK
+  jira_knowledge_base_id: ''
+  jira_data_source_id: ''
   kb_role_arn: arn:aws:iam::489675988515:role/sdlc-storage-KBServiceRole-zkFW0P6wUqXs
   embedding_model_type: MANAGED
   embedding_model_arn: ''
