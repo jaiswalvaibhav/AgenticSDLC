@@ -22,6 +22,13 @@ guidance, except where noted:
 - POST /rest/api/3/issue/{key}/remotelink     -> {"object": {"url": "...", "title": "..."}}
 - GET  /rest/api/3/issue/{key}?fields=attachment -> fields.attachment is a list
 
+Sprint placement uses the separate Jira Software "Agile" REST root, /rest/agile/1.0
+(not /rest/api/3) — verified live against a real Jira Cloud site (Oct 2026):
+- GET  /rest/agile/1.0/board?projectKeyOrId={key}      -> boards for the project
+- GET  /rest/agile/1.0/board/{boardId}/sprint?state=future -> not-yet-started sprints
+- POST /rest/agile/1.0/sprint {name, originBoardId}    -> create one (state "future")
+- POST /rest/agile/1.0/sprint/{sprintId}/issue {"issues": [...]} -> move from backlog
+
 ASSUMPTION flagged for the user to confirm: rollup (_rollup in orchestrator.py) queries
 children with JQL `parent = <key>`, which is how Jira's simplified issue hierarchy
 (team-managed projects) relates Sub-task -> Story -> Epic uniformly. A classic
@@ -52,6 +59,7 @@ class JiraClient:
         token = base64.b64encode(f"{email}:{api_token}".encode()).decode()
         self._session = requests.Session()
         self._session.headers["Authorization"] = f"Basic {token}"
+        self._board_id: int | None = None
 
     # -- low-level -------------------------------------------------------
     def _get(self, path: str, params: dict | None = None) -> dict:
@@ -61,6 +69,18 @@ class JiraClient:
 
     def _post(self, path: str, json_body: dict) -> dict:
         resp = self._session.post(f"{self.base_url}/rest/api/3{path}", json=json_body)
+        resp.raise_for_status()
+        return resp.json() if resp.content else {}
+
+    # -- low-level (Jira Software "Agile" API, a separate REST root from
+    # /rest/api/3 — used only for sprint discovery/creation/assignment) -----
+    def _agile_get(self, path: str, params: dict | None = None) -> dict:
+        resp = self._session.get(f"{self.base_url}/rest/agile/1.0{path}", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _agile_post(self, path: str, json_body: dict) -> dict:
+        resp = self._session.post(f"{self.base_url}/rest/agile/1.0{path}", json=json_body)
         resp.raise_for_status()
         return resp.json() if resp.content else {}
 
@@ -175,6 +195,43 @@ class JiraClient:
             print(f"[dry-run] would add remote link to {key}: {title} ({url})")
             return
         self._post(f"/issue/{key}/remotelink", {"object": {"url": url, "title": title}})
+
+    def _board_id_for_project(self) -> int:
+        if self._board_id is None:
+            boards = self._agile_get("/board", params={"projectKeyOrId": self.project_key})["values"]
+            if not boards:
+                raise RuntimeError(f"no Jira Software board found for project {self.project_key!r}")
+            self._board_id = boards[0]["id"]
+        return self._board_id
+
+    def get_or_create_future_sprint(self, dry_run: bool = True) -> str:
+        """Returns the id of a not-yet-started ("future") sprint on this project's
+        board, creating one if none exists. Verified live (Oct 2026) against a real
+        Jira Cloud site: GET /rest/agile/1.0/board?projectKeyOrId=... for the board,
+        GET /rest/agile/1.0/board/{id}/sprint?state=future for existing future sprints,
+        and POST /rest/agile/1.0/sprint {name, originBoardId} to create one (it comes
+        back in state "future" with no dates, same as a sprint created from the UI and
+        not yet started)."""
+        if dry_run:
+            print("[dry-run] would find or create a future sprint")
+            return "(dry-run)"
+        board_id = self._board_id_for_project()
+        future_sprints = self._agile_get(f"/board/{board_id}/sprint", params={"state": "future"})["values"]
+        if future_sprints:
+            return str(future_sprints[0]["id"])
+        created = self._agile_post("/sprint", {"name": f"{self.project_key} Sprint (auto)",
+                                                "originBoardId": board_id})
+        return str(created["id"])
+
+    def add_issues_to_sprint(self, sprint_id: str, keys: list[str], dry_run: bool = True) -> None:
+        """POST /rest/agile/1.0/sprint/{sprintId}/issue {"issues": [...]} — verified
+        live, moves issues straight from the backlog into the given sprint."""
+        if not keys:
+            return
+        if dry_run:
+            print(f"[dry-run] would add {keys} to sprint {sprint_id}")
+            return
+        self._agile_post(f"/sprint/{sprint_id}/issue", {"issues": keys})
 
     def has_artifact(self, key: str) -> bool:
         data = self._get(f"/issue/{key}", params={"fields": "attachment"})

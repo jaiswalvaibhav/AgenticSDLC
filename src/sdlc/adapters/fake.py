@@ -118,6 +118,8 @@ class FakeTicketSystem:
         self.artifacts: set[str] = set()  # issue keys treated as having an artifact
         self.blocked_transitions: set[tuple[str, str, str]] = set()  # (key, from_status, to_status)
         self.properties: dict[str, dict] = {}  # key -> {property_key: value}
+        self.sprints: dict[str, list[str]] = {}  # sprint_id -> issue keys
+        self._future_sprint_id: str | None = None
 
     def create_issue(self, issue_type, summary, *, parent_key=None, description="",
                       labels=None, assignee=None, component=None, dry_run=True) -> Issue:
@@ -170,6 +172,19 @@ class FakeTicketSystem:
     def add_remote_link(self, key: str, url: str, title: str, dry_run: bool = True) -> None:
         if not dry_run:
             self.remote_links.setdefault(key, []).append((url, title))
+
+    def get_or_create_future_sprint(self, dry_run: bool = True) -> str:
+        if dry_run:
+            return "(dry-run)"
+        if self._future_sprint_id is None:
+            self._future_sprint_id = f"SPRINT-{len(self.sprints) + 1}"
+            self.sprints[self._future_sprint_id] = []
+        return self._future_sprint_id
+
+    def add_issues_to_sprint(self, sprint_id: str, keys: list[str], dry_run: bool = True) -> None:
+        if not keys or dry_run:
+            return
+        self.sprints.setdefault(sprint_id, []).extend(keys)
 
     def has_artifact(self, key: str) -> bool:
         return key in self.artifacts

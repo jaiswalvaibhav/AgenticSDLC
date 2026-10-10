@@ -192,12 +192,14 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
         tickets.add_comment(issue_key, "No plan found to apply.", dry_run=dry_run)
         return
 
-    issue_types = load_terminology(use_case)["issue_types"]
+    terminology = load_terminology(use_case)
+    issue_types, statuses = terminology["issue_types"], terminology["statuses"]
     epic = tickets.find_issue_by_label(f"sdlc-epic:{use_case}")
     steps_map = _steps_map(store, use_case)
     dsd_key = steps_map.get("data_solution_development")
     traceability = store.get_json(f"workflow/{use_case}/traceability.json") or {"records": []}
     created_keys = []
+    new_story_keys = []
 
     for req in plan["requirements"]:
         marker = f"req-marker:{use_case}:{req['requirement_id']}"
@@ -232,11 +234,31 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
         # back-trace is readable from Jira itself without our ObjectStore.
         tickets.set_property(story.key, "sdlc.trace", trace_record, dry_run=dry_run)
         created_keys.append(story.key)
+        new_story_keys.append(story.key)
 
     store.put_json(f"workflow/{use_case}/traceability.json", traceability, dry_run=dry_run)
+
+    # Same sprint placement as workflow_start's step Stories (not backlog, not the
+    # active sprint) — see CLAUDE.md "Decisions (sprint placement + status transitions)".
+    if new_story_keys:
+        sprint_id = tickets.get_or_create_future_sprint(dry_run=dry_run)
+        tickets.add_issues_to_sprint(sprint_id, new_story_keys, dry_run=dry_run)
+
     tickets.add_comment(issue_key, f"Applied: {len(created_keys)} requirement stories "
                                      f"({', '.join(created_keys)}).", dry_run=dry_run)
-    tickets.transition_issue(issue_key, done_status, dry_run=dry_run)
+
+    # Never jump straight To Do -> Done: pass through In Progress first, matching how
+    # a step would have been transitioned had it gone through the normal orchestrator
+    # flow (_start_step already does To Do -> In Progress before the agent runs).
+    current_status = tickets.get_issue(issue_key).status
+    try:
+        if current_status == statuses["todo"]:
+            tickets.transition_issue(issue_key, statuses["in_progress"], dry_run=dry_run)
+        tickets.transition_issue(issue_key, done_status, dry_run=dry_run)
+    except TransitionNotAvailable:
+        tickets.add_comment(
+            issue_key, f"Applied, but the workflow doesn't allow transitioning to "
+                       f"{done_status} from here.", dry_run=dry_run)
 
 
 def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use_case: str,
@@ -289,6 +311,7 @@ def workflow_start(*, tickets: TicketSystem, store: ObjectStore, registry: Workf
                                       labels=[f"uc:{use_case}", epic_marker], dry_run=dry_run)
 
     steps_map = _steps_map(store, use_case)
+    new_story_keys = []
     for step in [*selection.artifact_only, *selection.selected]:
         if step.id in steps_map:
             continue
@@ -304,7 +327,15 @@ def workflow_start(*, tickets: TicketSystem, store: ObjectStore, registry: Workf
             component=cfg["jira"]["components"].get(step.owner), dry_run=dry_run,
         )
         steps_map[step.id] = issue.key
+        new_story_keys.append(issue.key)
     _save_steps_map(store, use_case, steps_map, dry_run)
+
+    # Newly created step Stories go straight into the next (not-yet-started) sprint,
+    # not the backlog and not the currently active sprint — per the user's explicit
+    # choice, see CLAUDE.md "Decisions (sprint placement + status transitions)".
+    if new_story_keys:
+        sprint_id = tickets.get_or_create_future_sprint(dry_run=dry_run)
+        tickets.add_issues_to_sprint(sprint_id, new_story_keys, dry_run=dry_run)
 
     for step in selection.selected:
         for dep_id in step.inputs:

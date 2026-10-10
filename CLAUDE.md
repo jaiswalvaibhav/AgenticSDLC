@@ -135,3 +135,36 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
   Agent Runtime + S3 permissions — not Claude model access.
 - Treat this as a temporary workaround to delete once Bedrock Claude model access lands, not
   a permanent second LLM provider path.
+
+## Decisions (sprint placement + status transitions)
+- **Confluence publishing of the solution requirements plan** (`engine._publish_plan_page`):
+  besides `plan.json`/`plan.md` in the `ObjectStore` (`.state/` for `local`, S3 for `aws`), the
+  full plan (not just the summary that goes in the Jira comment) is published as a Confluence
+  page titled `"<N>. Solution Requirements"` under the use case root — same numbering
+  convention as the other anchor pages (`N = len(non-root page_roles) + 1`) — and the step
+  ticket gets a `TicketSystem.add_remote_link` to it. `DocumentSource` is Confluence in both
+  profiles, so no profile-specific wiring was needed.
+- **Jira issue type names are per-instance, not hardcoded**: `orchestrator.py` used to pass
+  literal `"Epic"`/`"Story"`/`"Sub-task"` to `create_issue`, ignoring the `issue_types` mapping
+  already defined in `terminology.yaml` for exactly this. On this Jira Cloud site the real
+  Sub-task issue type is named `"Subtask"` (no hyphen) — confirmed via
+  `GET /issue/createmeta?projectKeys=SCRUM` — so the literal `"Sub-task"` 400'd on every
+  `create_issue` call. Fixed by wiring `issue_types` from `terminology.yaml` into all three
+  `create_issue` call sites (`workflow_start`'s Epic/Story, `apply_plan`'s Story/Sub-task), and
+  correcting this use case's `terminology.yaml` value. Check your own instance's real issue
+  type names the same way before reusing this for a new use case.
+- **New Stories go into the next unstarted sprint, not the backlog and not the active
+  sprint** — the user's explicit choice. `TicketSystem.get_or_create_future_sprint` /
+  `add_issues_to_sprint` (new port methods) use the separate Jira Software "Agile" REST root
+  (`/rest/agile/1.0`, not `/rest/api/3`) — verified live against a real Jira Cloud site (Oct
+  2026): `GET /board?projectKeyOrId=...` for the board, `GET /board/{id}/sprint?state=future`
+  for a not-yet-started sprint (created via `POST /sprint {name, originBoardId}` if none
+  exists), `POST /sprint/{id}/issue {"issues": [...]}` to move issues out of the backlog. Wired
+  into both `workflow_start` (step Stories) and `apply_plan` (requirement Stories) — only the
+  newly-created keys each call, not ones found via the idempotency marker.
+- **`apply_plan` never jumps straight To Do -> Done** — the user's explicit choice, since the
+  normal orchestrator-driven flow already passes through In Progress (`_start_step` does that
+  before the agent runs) and a manually-triggered `apply_plan`/`analyst-apply` should look the
+  same in the issue's history. It now checks the issue's current status and inserts a
+  To Do -> In Progress transition first if needed, wrapped in the same `TransitionNotAvailable`
+  fallback-to-comment pattern `_start_step`/`_rollup` already use.

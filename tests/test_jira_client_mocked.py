@@ -112,3 +112,51 @@ def test_set_property_puts_value_to_properties_endpoint(client):
 def test_set_property_dry_run_makes_no_calls(client):
     client.set_property("DEMO-1", "sdlc.trace", {}, dry_run=True)
     assert client._session.calls == []
+
+
+def test_get_or_create_future_sprint_uses_existing_future_sprint(client):
+    client._session.queue("GET", "/board", FakeResponse({"values": [{"id": 1}]}))
+    client._session.queue("GET", "/board/1/sprint", FakeResponse({"values": [{"id": 7, "state": "future"}]}))
+
+    sprint_id = client.get_or_create_future_sprint(dry_run=False)
+
+    assert sprint_id == "7"
+    assert not any(method == "POST" for method, _, _ in client._session.calls)
+
+
+def test_get_or_create_future_sprint_creates_one_when_none_exists(client):
+    client._session.queue("GET", "/board", FakeResponse({"values": [{"id": 1}]}))
+    client._session.queue("GET", "/board/1/sprint", FakeResponse({"values": []}))
+    client._session.queue("POST", "/sprint", FakeResponse({"id": 9, "state": "future"}))
+
+    sprint_id = client.get_or_create_future_sprint(dry_run=False)
+
+    assert sprint_id == "9"
+    method, url, body = client._session.calls[-1]
+    assert method == "POST" and url.endswith("/sprint")
+    assert body == {"name": "DEMO Sprint (auto)", "originBoardId": 1}
+
+
+def test_get_or_create_future_sprint_dry_run_makes_no_calls(client):
+    assert client.get_or_create_future_sprint(dry_run=True) == "(dry-run)"
+    assert client._session.calls == []
+
+
+def test_add_issues_to_sprint_posts_issue_keys(client):
+    client._session.queue("POST", "/sprint/7/issue", FakeResponse({}))
+
+    client.add_issues_to_sprint("7", ["DEMO-1", "DEMO-2"], dry_run=False)
+
+    method, url, body = client._session.calls[0]
+    assert method == "POST" and url.endswith("/sprint/7/issue")
+    assert body == {"issues": ["DEMO-1", "DEMO-2"]}
+
+
+def test_add_issues_to_sprint_dry_run_makes_no_calls(client):
+    client.add_issues_to_sprint("7", ["DEMO-1"], dry_run=True)
+    assert client._session.calls == []
+
+
+def test_add_issues_to_sprint_skips_call_when_no_keys(client):
+    client.add_issues_to_sprint("7", [], dry_run=False)
+    assert client._session.calls == []

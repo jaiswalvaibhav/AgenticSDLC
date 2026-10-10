@@ -191,6 +191,37 @@ def test_check_approvals_applies_on_label(tickets, store, cfg):
     assert tickets.properties[story.key]["sdlc.trace"]["requirement_id"] == "REQ-1"
 
 
+def test_check_approvals_passes_through_in_progress_when_still_todo(tickets, store, cfg):
+    """apply_plan must never jump straight To Do -> Done; it should pass through
+    In Progress first, same as the normal orchestrator-driven flow would have."""
+    key = _step_issue(tickets, store, UC, "b")  # left at "To Do"
+    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
+    store.put_json(f"workflow/{UC}/plan.json", _SAMPLE_PLAN, dry_run=False)
+    tickets.add_label(key, cfg["jira"]["approval_label"], dry_run=False)
+    tickets.create_issue("Epic", "Epic", labels=[f"sdlc-epic:{UC}"], dry_run=False)
+
+    orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False)
+
+    assert tickets.get_issue(key).status == STATUSES["done"]
+    statuses_seen = [e.to_status for e in tickets.events if e.issue_key == key]
+    assert statuses_seen == [STATUSES["in_progress"], STATUSES["done"]]
+
+
+def test_check_approvals_places_new_requirement_stories_in_future_sprint(tickets, store, cfg):
+    key = _step_issue(tickets, store, UC, "b")
+    tickets.transition_issue(key, STATUSES["in_progress"], dry_run=False)
+    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
+    store.put_json(f"workflow/{UC}/plan.json", _SAMPLE_PLAN, dry_run=False)
+    tickets.add_label(key, cfg["jira"]["approval_label"], dry_run=False)
+    tickets.create_issue("Epic", "Epic", labels=[f"sdlc-epic:{UC}"], dry_run=False)
+
+    orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False)
+
+    story = next(i for i in tickets.issues.values() if i.summary == "Ingest Orders")
+    [(_sprint_id, keys)] = tickets.sprints.items()
+    assert story.key in keys
+
+
 def test_check_approvals_regenerates_on_reject(tickets, store, cfg):
     key = _step_issue(tickets, store, UC, "b")
     store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
@@ -214,3 +245,12 @@ def test_workflow_start_is_idempotent(tickets, store, cfg):
     assert len(tickets.issues) == len(first) + 1  # + the epic
     epic_issues = [i for i in tickets.issues.values() if i.issue_type == "Epic"]
     assert len(epic_issues) == 1
+
+
+def test_workflow_start_places_new_step_stories_in_future_sprint(tickets, store, cfg):
+    registry = WorkflowRegistry.load()
+    steps_map = orchestrator.workflow_start(tickets=tickets, store=store, registry=registry, cfg=cfg,
+                                             use_case=UC, from_step="solution_requirements", dry_run=False)
+
+    [(_sprint_id, keys)] = tickets.sprints.items()
+    assert set(keys) == set(steps_map.values())  # every newly created step Story, none skipped
