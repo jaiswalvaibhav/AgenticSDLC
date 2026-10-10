@@ -186,10 +186,19 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
   `--epic-key` (required, no auto-derivation, no interactive prompt) -> its Stories (`parent =
   <epicKey>`) -> each Story's Sub-tasks (`parent = <storyKey>`), using the real `parent` links
   `workflow_start`/`apply_plan` already set. Layout:
-  `.data/corpus_jira/<epicKey>/[<storyKey>/[<subtaskKey>/]]` with `issue.md`, `meta.json`, and
-  every successfully-downloaded attachment file co-located directly in that ticket's own
-  folder — no separate `_attachments/` subfolder (unlike Confluence's corpus), per the user's
-  explicit requirement.
+  `.data/corpus_jira/<epicKey>/[<storyKey>/[<subtaskKey>/]]` with `issue.md` and a per-ticket
+  `_attachments/<file>` subfolder (same convention as Confluence's corpus) in each ticket's
+  own directory.
+- **`meta.json` is one file per epic tree, not one per ticket** — the user's explicit
+  correction after the first pass wrote one per ticket. It lives only at the epic root
+  (`.data/corpus_jira/<epicKey>/meta.json`) as `{"epicKey": ..., "issues": {issueKey: {
+  issueType, status, updated, summary, attachments, path}}}`, where `path` is the ticket's
+  directory relative to the epic root (`"."` for the epic itself, `"<story>"`, `"<story>/
+  <subtask>"`). `jira_sync.sync_issues` rebuilds it every run by merging the previous file
+  (kept for tickets that were unchanged or still failing) with this run's freshly-fetched
+  tickets, so a partial run never drops an entry it didn't need to touch. `jira_aws_sync.py`
+  walks each epic's single `meta.json` to find every ticket's directory via its `path`, rather
+  than globbing for per-ticket `meta.json` files.
 - **Attachment handling**: Bedrock's S3 data source natively ingests `.txt/.md/.html/
   .doc/.docx/.csv/.xls/.xlsx/.pdf` and (via multimodal parsing) `.jpeg/.jpg/.png` — verified
   live, Oct 2026 — with size limits of 3.75MB for images and 50MB for everything else. An

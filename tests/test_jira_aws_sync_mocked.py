@@ -27,8 +27,10 @@ def _write_ticket(cfg: dict, epic: str, updated: str = "2026-01-01T00:00:00+0000
     ticket_dir = Path(cfg["data_dir"]) / "corpus_jira" / epic
     ticket_dir.mkdir(parents=True, exist_ok=True)
     (ticket_dir / "issue.md").write_text("# Delivery\n")
-    (ticket_dir / "meta.json").write_text(json.dumps(
-        {"issueKey": epic, "updated": updated, "attachments": []}))
+    (ticket_dir / "meta.json").write_text(json.dumps({"epicKey": epic, "issues": {
+        epic: {"issueType": "Epic", "status": "To Do", "updated": updated,
+               "summary": "Delivery", "attachments": [], "path": "."},
+    }}))
     from sdlc.adapters.local_store import LocalObjectStore
     store = LocalObjectStore(cfg["state_dir"])
     store.put_json(DOWNLOAD_TRACE_KEY, {epic: {"status": "success", "last_success_updated": updated}},

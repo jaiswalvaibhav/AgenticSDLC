@@ -6,10 +6,12 @@ orchestrator path: this pipeline is explicit-trigger-only, by the user's own
 decision (see CLAUDE.md "Jira downloader").
 
 issue.md is uploaded as-is (Bedrock's S3 data source ingests .md directly — see
-jira_sync.py's module docstring for why no PDF render step is needed). Each
-co-located attachment file is uploaded as its own separate S3 object, so a
+jira_sync.py's module docstring for why no PDF render step is needed). Each file
+in a ticket's _attachments/ folder is uploaded as its own separate S3 object, so a
 Knowledge Base hit on it resolves to exactly that file, not just "somewhere in
-this issue" (see jira_url_from_s3_uri in jira_citations.py).
+this issue" (see jira_url_from_s3_uri in jira_citations.py). Ticket discovery
+walks each epic's single meta.json (see jira_sync.py — one file per epic tree,
+not one per ticket), using its "path" entries to find each ticket's directory.
 
 A separate upload trace ("jira_upload_trace.json" in the local ObjectStore, keyed
 by issue key) records success/failure independently of jira_sync.py's own download
@@ -42,13 +44,16 @@ class JiraAwsSyncResult:
     ingestion_status: str | None = None
 
 
-def _ticket_dirs(corpus_jira: Path) -> list[Path]:
-    return [meta.parent for meta in corpus_jira.rglob("meta.json")]
+def _epic_dirs(corpus_jira: Path) -> list[Path]:
+    return [meta.parent for meta in corpus_jira.glob("*/meta.json")]
 
 
-def _s3_prefix(jira_docs_prefix: str, use_case: str, ticket_dir: Path, corpus_jira: Path) -> str:
-    rel_parts = ticket_dir.relative_to(corpus_jira).parts  # (epicKey, [storyKey, [subtaskKey]])
-    return f"{jira_docs_prefix}{use_case}/jira/{'/'.join(rel_parts)}/"
+def _ticket_files(ticket_dir: Path) -> list[Path]:
+    files = [ticket_dir / "issue.md"]
+    attachments_dir = ticket_dir / "_attachments"
+    if attachments_dir.exists():
+        files += sorted(p for p in attachments_dir.iterdir() if p.is_file())
+    return files
 
 
 def jira_aws_sync(cfg: dict, *, dry_run: bool = True) -> JiraAwsSyncResult:
@@ -65,44 +70,45 @@ def jira_aws_sync(cfg: dict, *, dry_run: bool = True) -> JiraAwsSyncResult:
     now = datetime.now(timezone.utc).isoformat()
     live_keys: set[str] = set()
 
-    for ticket_dir in _ticket_dirs(corpus_jira):
-        meta = json.loads((ticket_dir / "meta.json").read_text())
-        issue_key = meta["issueKey"]
-        last_success_updated = download_trace.get(issue_key, {}).get("last_success_updated")
-        entry = upload_trace.get(issue_key)
+    for epic_dir in _epic_dirs(corpus_jira):
+        epic_meta = json.loads((epic_dir / "meta.json").read_text())
+        epic_key = epic_meta["epicKey"]
 
-        if entry and entry.get("status") == "success" and entry.get("uploaded_updated") == last_success_updated:
-            live_keys.update(entry.get("s3_keys", []))
-            result.unchanged.append(issue_key)
-            continue
+        for issue_key, issue_entry in epic_meta["issues"].items():
+            ticket_dir = epic_dir if issue_entry["path"] == "." else epic_dir / issue_entry["path"]
+            last_success_updated = download_trace.get(issue_key, {}).get("last_success_updated")
+            entry = upload_trace.get(issue_key)
 
-        prefix = _s3_prefix(jira_docs_prefix, use_case, ticket_dir, corpus_jira)
-        files = [ticket_dir / "issue.md"] + [
-            p for p in ticket_dir.iterdir() if p.is_file() and p.name not in ("issue.md", "meta.json")
-        ]
-        keys = [f"{prefix}{f.name}" for f in files]
+            if entry and entry.get("status") == "success" and entry.get("uploaded_updated") == last_success_updated:
+                live_keys.update(entry.get("s3_keys", []))
+                result.unchanged.append(issue_key)
+                continue
 
-        try:
-            if dry_run:
-                for f, key in zip(files, keys):
-                    print(f"[dry-run] would upload s3://{bucket}/{key} ({f.stat().st_size} bytes)")
-            else:
-                for f, key in zip(files, keys):
-                    content_type = "text/markdown" if f.suffix == ".md" else None
-                    extra = {"ContentType": content_type} if content_type else {}
-                    s3.put_object(Bucket=bucket, Key=key, Body=f.read_bytes(), **extra)
-            upload_trace[issue_key] = {"status": "success", "error": None, "last_attempt": now,
-                                        "uploaded_updated": last_success_updated, "s3_keys": keys}
-            live_keys.update(keys)
-            result.uploaded.append(issue_key)
-        except Exception as exc:  # noqa: BLE001 -- isolate per-ticket, keep going
-            print(f"[error] failed to upload Jira issue {issue_key} to S3: {exc}")
-            previous = upload_trace.get(issue_key, {})
-            upload_trace[issue_key] = {"status": "failed", "error": str(exc), "last_attempt": now,
-                                        "uploaded_updated": previous.get("uploaded_updated"),
-                                        "s3_keys": previous.get("s3_keys", [])}
-            live_keys.update(previous.get("s3_keys", []))
-            result.failed.append(issue_key)
+            files = _ticket_files(ticket_dir)
+            keys = [f"{jira_docs_prefix}{use_case}/jira/{epic_key}/{f.relative_to(epic_dir).as_posix()}"
+                    for f in files]
+
+            try:
+                if dry_run:
+                    for f, key in zip(files, keys):
+                        print(f"[dry-run] would upload s3://{bucket}/{key} ({f.stat().st_size} bytes)")
+                else:
+                    for f, key in zip(files, keys):
+                        content_type = "text/markdown" if f.suffix == ".md" else None
+                        extra = {"ContentType": content_type} if content_type else {}
+                        s3.put_object(Bucket=bucket, Key=key, Body=f.read_bytes(), **extra)
+                upload_trace[issue_key] = {"status": "success", "error": None, "last_attempt": now,
+                                            "uploaded_updated": last_success_updated, "s3_keys": keys}
+                live_keys.update(keys)
+                result.uploaded.append(issue_key)
+            except Exception as exc:  # noqa: BLE001 -- isolate per-ticket, keep going
+                print(f"[error] failed to upload Jira issue {issue_key} to S3: {exc}")
+                previous = upload_trace.get(issue_key, {})
+                upload_trace[issue_key] = {"status": "failed", "error": str(exc), "last_attempt": now,
+                                            "uploaded_updated": previous.get("uploaded_updated"),
+                                            "s3_keys": previous.get("s3_keys", [])}
+                live_keys.update(previous.get("s3_keys", []))
+                result.failed.append(issue_key)
 
     # Orphan cleanup: delete S3 objects under this prefix that no longer belong to
     # any ticket currently on disk (deleted tickets, renamed/removed attachments).

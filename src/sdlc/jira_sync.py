@@ -1,16 +1,35 @@
 """Downloads a Jira epic's ticket tree (Epic -> Story -> Sub-task) into a local
-corpus mirroring Jira's own parent hierarchy, with each ticket's attachments
-co-located in its own folder (no separate _attachments/ subfolder) — for Knowledge
-Base ingestion via jira_aws_sync.py. A separate pipeline from Confluence's: never
-invoked by workflow_start, sync-progress/watch-progress, or orchestrator.py — always
-triggered by hand, scoped to one epic given explicitly via --epic-key.
+corpus mirroring Jira's own parent hierarchy, each ticket's attachments in their
+own `_attachments/` subfolder — for Knowledge Base ingestion via jira_aws_sync.py.
+A separate pipeline from Confluence's: never invoked by workflow_start,
+sync-progress/watch-progress, or orchestrator.py — always triggered by hand,
+scoped to one epic given explicitly via --epic-key.
 
-Layout: <data_dir>/corpus_jira/<epicKey>/[<storyKey>/[<subtaskKey>/]]
-          issue.md, meta.json, <attachment files>
+Layout: <data_dir>/corpus_jira/<epicKey>/
+          meta.json                         <- one file for the whole epic tree
+          issue.md, _attachments/<file>     <- the epic's own content
+          <storyKey>/
+            issue.md, _attachments/<file>
+            <subtaskKey>/
+              issue.md, _attachments/<file>
+
+meta.json is a single file per epic (not one per ticket): {"epicKey": ...,
+"issues": {issueKey: {issueType, status, updated, summary, attachments, path}}},
+where `path` is the ticket's directory relative to the epic root ("." for the
+epic itself, "DEMO-2" for a Story, "DEMO-2/DEMO-3" for a Sub-task). It's rebuilt
+every run from the previous file (for tickets left unchanged or still failing)
+merged with this run's freshly-fetched tickets, so a partial run never drops an
+entry for a ticket it didn't need to re-fetch.
 
 Epic -> Story -> Sub-task is resolved via the real Jira `parent` links
 workflow_start/apply_plan already create (orchestrator.py) — plain `search()`
 calls, no new Jira capability needed.
+
+Every attachment gets a line in issue.md's "## Attachments" section regardless of
+outcome — "> Attachment: <name>" when downloaded, "> Attachment not downloaded:
+<name> (<reason>)" otherwise — so a search hit on the ticket text always names its
+attachments by filename, rather than relying on a human happening to mention the
+filename in a comment.
 
 A download trace (jira_trace.json in the ObjectStore, keyed by issue key) records
 success/failure per ticket, so a partial failure can be retried on the next run
@@ -33,6 +52,7 @@ from pathlib import Path
 from sdlc.ports import Issue, ObjectStore, TicketSystem
 
 TRACE_KEY = "jira_trace.json"
+META_FILENAME = "meta.json"
 FETCH_WORKERS = 8
 
 # Bedrock S3 data source support + size limits (verified live, Oct 2026): images are
@@ -51,8 +71,16 @@ class SyncResult:
     unchanged: list[str] = field(default_factory=list)
 
 
+def _epic_dir(data_dir: Path, epic_key: str) -> Path:
+    return data_dir / "corpus_jira" / epic_key
+
+
 def _ticket_dir(data_dir: Path, path_parts: tuple[str, ...]) -> Path:
     return data_dir / "corpus_jira" / Path(*path_parts)
+
+
+def _rel_path(path_parts: tuple[str, ...]) -> str:
+    return "/".join(path_parts[1:]) or "."
 
 
 def _resolve_tree(tickets: TicketSystem, epic_key: str) -> list[tuple[str, tuple[str, ...]]]:
@@ -79,38 +107,48 @@ def sync_issues(tickets: TicketSystem, store: ObjectStore, *, epic_key: str, bas
     if dry_run:
         for key, parts in candidates:
             print(f"[dry-run] would check {key} and write "
-                  f"{_ticket_dir(data_dir, parts)}/issue.md if new/changed/previously failed")
+                  f"{_ticket_dir(data_dir, parts)}/issue.md if new/changed/previously failed, "
+                  f"and update {_epic_dir(data_dir, epic_key)}/{META_FILENAME}")
         return result
 
-    def process(item: tuple[str, tuple[str, ...]]) -> tuple[str, str, str | None, str | None]:
+    meta_path = _epic_dir(data_dir, epic_key) / META_FILENAME
+    combined_meta: dict = json.loads(meta_path.read_text())["issues"] if meta_path.exists() else {}
+
+    def process(item: tuple[str, tuple[str, ...]]):
         key, parts = item
         try:
             issue = tickets.get_issue(key)
             entry = trace.get(key)
             if entry and entry.get("status") == "success" and entry.get("last_success_updated") == issue.updated:
-                return key, "unchanged", None, issue.updated
-            _write_ticket(tickets, issue, _ticket_dir(data_dir, parts), base_url)
-            return key, "fetched", None, issue.updated
+                return key, "unchanged", None, issue.updated, None
+            attachment_meta = _write_ticket(tickets, issue, _ticket_dir(data_dir, parts), base_url)
+            issue_meta = {"issueType": issue.issue_type, "status": issue.status, "updated": issue.updated,
+                          "summary": issue.summary, "attachments": attachment_meta, "path": _rel_path(parts)}
+            return key, "fetched", None, issue.updated, issue_meta
         except Exception as exc:  # noqa: BLE001 -- isolate per-ticket, see module docstring
             print(f"[error] failed to sync Jira issue {key}: {exc}")
-            return key, "failed", str(exc), None
+            return key, "failed", str(exc), None, None
 
     with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
         outcomes = list(pool.map(process, candidates))
 
     now = datetime.now(timezone.utc).isoformat()
-    for key, outcome, error, updated in outcomes:
+    for key, outcome, error, updated, issue_meta in outcomes:
         if outcome == "fetched":
             trace[key] = {"status": "success", "error": None, "last_attempt": now,
                           "last_success_updated": updated}
+            combined_meta[key] = issue_meta
             result.fetched.append(key)
         elif outcome == "unchanged":
-            result.unchanged.append(key)
+            result.unchanged.append(key)  # combined_meta[key] already carried over from disk
         else:
             previous = trace.get(key, {})
             trace[key] = {"status": "failed", "error": error, "last_attempt": now,
                           "last_success_updated": previous.get("last_success_updated")}
-            result.failed.append(key)
+            result.failed.append(key)  # keep any existing combined_meta[key] entry as-is
+
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text(json.dumps({"epicKey": epic_key, "issues": combined_meta}, indent=2))
 
     store.put_json(TRACE_KEY, trace, dry_run=dry_run)
     return result
@@ -125,8 +163,9 @@ def _check_attachment(file_size: int, ext: str) -> tuple[str, str | None]:
     return "downloaded", None
 
 
-def _write_ticket(tickets: TicketSystem, issue: Issue, ticket_dir: Path, base_url: str) -> None:
+def _write_ticket(tickets: TicketSystem, issue: Issue, ticket_dir: Path, base_url: str) -> list[dict]:
     ticket_dir.mkdir(parents=True, exist_ok=True)
+    attachments_dir = ticket_dir / "_attachments"
 
     attachment_meta = []
     notes: list[str] = []
@@ -140,17 +179,17 @@ def _write_ticket(tickets: TicketSystem, issue: Issue, ticket_dir: Path, base_ur
                 status, reason = "failed_download", str(exc)
                 print(f"[error] failed to download attachment {attachment.title!r} on {issue.key}: {exc}")
             else:
-                (ticket_dir / attachment.title).write_bytes(data)
-        if status != "downloaded":
+                attachments_dir.mkdir(parents=True, exist_ok=True)
+                (attachments_dir / attachment.title).write_bytes(data)
+        if status == "downloaded":
+            notes.append(f"> Attachment: {attachment.title}")
+        else:
             notes.append(f"> Attachment not downloaded: {attachment.title} ({reason})")
         attachment_meta.append({"filename": attachment.title, "mediaType": attachment.media_type,
                                  "size": attachment.file_size, "status": status, "reason": reason})
 
     (ticket_dir / "issue.md").write_text(_render_markdown(issue, base_url, notes))
-    (ticket_dir / "meta.json").write_text(json.dumps({
-        "issueKey": issue.key, "issueType": issue.issue_type, "status": issue.status,
-        "updated": issue.updated, "summary": issue.summary, "attachments": attachment_meta,
-    }, indent=2))
+    return attachment_meta
 
 
 def _render_markdown(issue: Issue, base_url: str, notes: list[str]) -> str:
