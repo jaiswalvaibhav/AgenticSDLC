@@ -91,6 +91,17 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
 - Treat this as a temporary workaround to delete once Bedrock Claude model access lands, not
   a permanent second LLM provider path.
 
+## Decisions (env var rename: `ANALYST_LLM_PROVIDER` → `EXTERNAL_LLM_PROVIDER`)
+- Renamed per the user's request: the switch was never analyst-specific in behaviour — it
+  only happened to live in `engine.py` because the analyst agent is the only one implemented
+  so far. The engineer/tester agents (`agents/engineering/`, `agents/tester/` — stubs only)
+  are expected to reuse the same local-only Anthropic/Gemini stopgap once built, so the name
+  shouldn't imply it's scoped to one agent. Updated the env var itself (`engine.py`,
+  `.env.example`), and the wording in `CLAUDE.md`/`README.md`/`docs/DEPLOYMENT_GUIDE.md`
+  that said "the analyst agent" where it meant "whichever local agent is calling an LLM."
+  Left the rest of this file's earlier entries as-written (dated history), rather than
+  rewriting past references to the old name.
+
 ## Decisions (sprint placement + status transitions)
 - **Confluence publishing of the solution requirements plan** (`engine._publish_plan_page`):
   besides `plan.json`/`plan.md` in the `ObjectStore` (`.state/` for `local`, S3 for `aws`), the

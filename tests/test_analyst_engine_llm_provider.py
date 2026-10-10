@@ -1,5 +1,5 @@
 """Tests the local-profile LLM provider dispatch in engine._build_real_agent /
-_build_local_llm_model: ANALYST_LLM_PROVIDER picks Anthropic, Gemini, or (default/aws
+_build_local_llm_model: EXTERNAL_LLM_PROVIDER picks Anthropic, Gemini, or (default/aws
 profile) Bedrock. No real network calls — typer.confirm is stubbed and only the model
 object's construction is checked, never used to make a request."""
 import pytest
@@ -18,13 +18,13 @@ def cfg():
 
 
 def test_defaults_to_bedrock_when_no_provider_set(monkeypatch, cfg):
-    monkeypatch.delenv("ANALYST_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
     agent = _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
     assert agent.model.config["model_id"] == "fake-bedrock-id"
 
 
 def test_aws_profile_ignores_provider_env_var(monkeypatch, cfg):
-    monkeypatch.setenv("ANALYST_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     cfg = {**cfg, "profile": "aws"}
     agent = _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
@@ -32,7 +32,7 @@ def test_aws_profile_ignores_provider_env_var(monkeypatch, cfg):
 
 
 def test_anthropic_provider_builds_anthropic_model(monkeypatch, cfg):
-    monkeypatch.setenv("ANALYST_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setenv("ANTHROPIC_MODEL_ID", "claude-sonnet-5")
     agent = _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
@@ -43,7 +43,7 @@ def test_anthropic_provider_builds_anthropic_model(monkeypatch, cfg):
 
 
 def test_gemini_provider_builds_gemini_model_via_vertex_adc(monkeypatch, cfg):
-    monkeypatch.setenv("ANALYST_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-gcp-project")
     agent = _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
     from strands.models.gemini import GeminiModel
@@ -56,7 +56,7 @@ def test_gemini_provider_builds_gemini_model_via_vertex_adc(monkeypatch, cfg):
 
 
 def test_gemini_provider_respects_model_and_location_overrides(monkeypatch, cfg):
-    monkeypatch.setenv("ANALYST_LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-gcp-project")
     monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "australia-southeast1")
     monkeypatch.setenv("GEMINI_MODEL_ID", "gemini-2.5-pro")
@@ -66,6 +66,6 @@ def test_gemini_provider_respects_model_and_location_overrides(monkeypatch, cfg)
 
 
 def test_unknown_provider_raises(monkeypatch, cfg):
-    monkeypatch.setenv("ANALYST_LLM_PROVIDER", "openai")
-    with pytest.raises(ValueError, match="Unknown ANALYST_LLM_PROVIDER"):
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "openai")
+    with pytest.raises(ValueError, match="Unknown EXTERNAL_LLM_PROVIDER"):
         _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)

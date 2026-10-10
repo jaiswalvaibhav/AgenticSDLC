@@ -92,7 +92,7 @@ def _build_local_llm_model(provider: str):
             model_id=model_id,
         )
 
-    raise ValueError(f"Unknown ANALYST_LLM_PROVIDER={provider!r} (expected 'anthropic' or 'gemini')")
+    raise ValueError(f"Unknown EXTERNAL_LLM_PROVIDER={provider!r} (expected 'anthropic' or 'gemini')")
 
 
 def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict):
@@ -102,7 +102,7 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
 
     from sdlc.agents.analyst.tools import make_search_knowledge_tool
 
-    provider = os.environ.get("ANALYST_LLM_PROVIDER")
+    provider = os.environ.get("EXTERNAL_LLM_PROVIDER")
     if cfg["profile"] == "local" and provider:
         # Stopgap until Bedrock Claude model access is granted on this account (see
         # docs/DECISIONS.md "Decisions (local-only Anthropic API stopgap)"). local-profile

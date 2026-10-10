@@ -66,9 +66,16 @@ uv run sdlc config show
 
 ## 4. One-time AWS setup (both profiles)
 
-Both `local` and `aws` profiles use Bedrock Claude for the LLM and a Bedrock Managed
-Knowledge Base for retrieval — there's no local vector store. Run this once,
-regardless of which profile you'll use day to day:
+This section has two parts: deploying the shared Knowledge Base infra (always
+needed), and choosing which LLM a local agent calls (where `local` has a choice of
+Bedrock Claude or an external LLM, and `aws` does not — it always uses Bedrock's
+Claude LLM).
+
+### 4.1 Deploy the Knowledge Base infra
+
+Both `local` and `aws` profiles retrieve from the same Bedrock Managed Knowledge
+Base — there's no local vector store, so this step is required either way. Run it
+once, regardless of which profile you'll use day to day:
 
 ```bash
 uv run sdlc aws-deploy --dry-run      # preview
@@ -80,8 +87,20 @@ This writes `knowledge_base_id`, `data_source_id` and `kb_role_arn` back into
 `config.yaml`. Everything `aws-deploy` creates is recorded in
 `infra/aws/.ledger.json` so `aws-destroy` can reverse it later.
 
-Then pick a Claude model id for the agent. `ap-southeast-2` needs a cross-region
-inference profile id, not a plain model id:
+### 4.2 Choose which LLM a local agent uses
+
+Any agent that needs an LLM (today: the analyst agent, which generates
+`solution_requirements` plans; the same switch will cover the engineer/tester
+agents once they exist) uses Bedrock Claude by default:
+
+| | `profile: local` | `profile: aws` |
+|---|---|---|
+| Bedrock Claude | default | always (only option) |
+| Your own Anthropic/Gemini key | opt in via `EXTERNAL_LLM_PROVIDER` | ignored, even if set |
+
+**Default — Bedrock Claude.** Pick a model id (`ap-southeast-2` needs a
+cross-region inference profile id, not a plain model id) and set it as
+`aws.llm_model_id` in `config.yaml`:
 
 ```bash
 aws bedrock list-inference-profiles --region ap-southeast-2
@@ -92,29 +111,29 @@ aws bedrock list-inference-profiles --region ap-southeast-2
 > installed `strands-agents` hardcodes a forced `tool_choice` that model rejects).
 > Use `claude-sonnet-5` until this is fixed upstream — see `DECISIONS.md`.
 
-### If you have API key of LLM and do not want to use Bedrock's Claude model:
-
-If you want to use direct API key of an LLM or want to use Gemini from GCP project instead of Bedrock's LLM in this project in local profile, `profile:
-local` has a stopgap: set `ANALYST_LLM_PROVIDER` in `.env` to call Anthropic or
-Gemini directly instead (billed to your own account/key, confirmed per call — never
-used by `profile: aws` or the Lambda):
+**Opt-in override for `profile: local` — direct Anthropic/Gemini key.** Set
+`EXTERNAL_LLM_PROVIDER` in `.env`:
 
 ```bash
 # Anthropic directly
-ANALYST_LLM_PROVIDER=anthropic
+EXTERNAL_LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-your-api-key
 ANTHROPIC_MODEL_ID=claude-sonnet-5          # optional, this is the default
 
 # or Gemini via Vertex AI (run `gcloud auth application-default login` once first)
-ANALYST_LLM_PROVIDER=gemini
+EXTERNAL_LLM_PROVIDER=gemini
 GOOGLE_CLOUD_PROJECT=your-gcp-project
 GOOGLE_CLOUD_LOCATION=us-central1           # optional, default shown
 GEMINI_MODEL_ID=gemini-3.8-flash            # optional, default shown
 ```
 
-Knowledge Base search still goes through Bedrock either way (it doesn't need Claude
-model access) — this stopgap only affects plan generation. Remove
-`ANALYST_LLM_PROVIDER` once Bedrock access lands.
+Setting `EXTERNAL_LLM_PROVIDER` under `profile: aws` has no effect — the deployed
+AgentCore container (`agents/agentcore_app.py`) always builds its model from
+`aws.llm_model_id` and never reads that env var.
+
+Knowledge Base search always goes through Bedrock regardless of this choice — it
+doesn't need Claude model access, so the override above only affects plan
+generation.
 
 ---
 
@@ -252,6 +271,52 @@ container via the `agentcore` CLI toolkit (needs Docker running locally), create
 AgentCore Runtime, and deploys the scheduled-orchestrator Lambda + its EventBridge
 rule via CloudFormation (`infra/aws/templates/agent.yaml`). It writes
 `agent_runtime_arn` back into `config.yaml`.
+
+#### What `aws-deploy` actually does under the hood (profile: aws)
+
+All of this is driven by `src/sdlc/aws/agent_deploy.py`, run right after the
+storage/KB deploy:
+
+1. **Package the orchestrator Lambda.** Zips a deliberately minimal subset of the
+   codebase — `config`, `sync_once`, `wiring`, the Jira/S3/AgentCore adapters,
+   the workflow registry/orchestrator — explicitly *excluding* Strands, bs4,
+   WeasyPrint and Graphviz, since the Lambda never needs them. Uploads the zip to
+   `s3://<bucket>/state/lambda/orchestrator.zip`.
+2. **Deploy the CloudFormation stack** (`infra/aws/templates/agent.yaml`), which
+   creates, in one stack:
+   - `AgentExecutionRole` — the IAM role the AgentCore *container* assumes at
+     runtime (ECR image pull, CloudWatch logs, X-Ray, `bedrock:InvokeModel`,
+     `bedrock-agent-runtime:Retrieve` on the KB). Created first, specifically so
+     the `agentcore` CLI step below can be handed a pre-existing least-privilege
+     role instead of letting it auto-create a broader one.
+   - `OrchestratorLambda` — the scheduled orchestrator function itself (handler
+     `sdlc.aws.orchestrator_lambda.handler`), with env vars for the profile and
+     Atlassian credentials. Its `AGENT_RUNTIME_ARN` env var starts out **blank**
+     here — the Runtime doesn't exist yet.
+   - `SchedulerRule` — an EventBridge rule (`rate(5 minutes)` by default,
+     configurable) that invokes the Lambda, plus the matching
+     `AWS::Lambda::Permission` letting `events.amazonaws.com` call it.
+3. **Build and launch the container via the `agentcore` CLI** — this is the part
+   CloudFormation can't do (it can't build/push Docker images):
+   ```bash
+   agentcore configure -e src/sdlc/agents/agentcore_app.py -er <AgentExecutionRoleArn>
+   agentcore launch
+   ```
+   This builds the container from the `agentcore_app.py` entrypoint, pushes it to
+   ECR (via a CodeBuild project `agentcore launch` creates behind the scenes), and
+   creates the actual AgentCore Runtime resource.
+4. **Close the loop.** The new Runtime's ARN is read back from the generated
+   `.bedrock_agentcore.yaml`, then: written into `config.yaml` as
+   `agent_runtime_arn`, *and* patched into the already-deployed Lambda's env vars
+   via `update_function_configuration` — so the Lambda now knows which Runtime to
+   call.
+
+**Runtime flow once deployed:** `SchedulerRule` (EventBridge) fires on schedule →
+`OrchestratorLambda` runs `sync_once()` → when a step becomes ready, it calls
+`AgentCoreAgentRuntime.invoke_agent_runtime()` → that invokes the deployed container
+(`agents/agentcore_app.py`), which runs the actual Strands analyst agent (Bedrock
+Claude + `search_knowledge` against the KB) and returns the result back to the
+Lambda.
 
 ### 6.2 Run the same workflow commands
 

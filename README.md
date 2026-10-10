@@ -112,9 +112,10 @@ uv run sdlc analyst-apply --use-case demo_order_fulfilment --step solution_requi
 
 ### No Bedrock Claude model access yet?
 
-The analyst agent normally calls Claude through Bedrock. If Bedrock model access isn't
-granted yet on your AWS account, set `ANALYST_LLM_PROVIDER` to `anthropic` or `gemini` in
-`.env` — `profile: local` only, see `.env.example`:
+The analyst agent normally calls Claude through Bedrock (and so will the engineer/tester
+agents once they exist — this is a per-local-agent switch, not analyst-specific). If
+Bedrock model access isn't granted yet on your AWS account, set `EXTERNAL_LLM_PROVIDER`
+to `anthropic` or `gemini` in `.env` — `profile: local` only, see `.env.example`:
 
 - `anthropic`: set `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_MODEL_ID`, default
   `claude-sonnet-5`). The agent calls the Anthropic API directly, billed to your own key.
@@ -126,7 +127,7 @@ granted yet on your AWS account, set `ANALYST_LLM_PROVIDER` to `anthropic` or `g
 
 Either way you're asked to confirm before every call since it's billed to your own
 account, not AWS. Knowledge Base search is unaffected (it's a separate Bedrock call that
-doesn't need Claude model access). Remove `ANALYST_LLM_PROVIDER` once Bedrock access
+doesn't need Claude model access). Remove `EXTERNAL_LLM_PROVIDER` once Bedrock access
 lands.
 
 ## AWS quick start (`profile: aws`)
