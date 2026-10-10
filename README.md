@@ -16,6 +16,9 @@ where the agent/orchestrator run:
 | Orchestrator runs via | `sync-progress` / `watch-progress` | a scheduled Lambda |
 
 See [`CLAUDE.md`](CLAUDE.md) for the architecture and every command.
+[`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) is a full step-by-step install
+→ deploy → run walkthrough covering both profiles and every variation — start there
+if you're new to the repo.
 [`docs/DECISIONS.md`](docs/DECISIONS.md) has the full dated decision log (what's
 verified against official docs vs. what still needs your confirmation).
 [`docs/BRIEF.md`](docs/BRIEF.md) is the original project brief.
