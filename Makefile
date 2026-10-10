@@ -2,8 +2,10 @@
 #   make sync ROOT_PAGE_ID=123456
 #   make search QUERY="on-time delivery"
 #   make workflow-start USE_CASE=demo_order_fulfilment
+#   make jira-sync EPIC_KEY=DEMO-1
 .PHONY: setup seed sync search workflow-preview workflow-start analyst-plan analyst-apply \
-        sync-progress watch-progress aws-deploy aws-sync aws-destroy test
+        sync-progress watch-progress aws-deploy aws-sync aws-destroy \
+        jira-sync jira-kb-create jira-aws-sync jira-search test
 
 setup:
 	uv run sdlc setup
@@ -43,6 +45,18 @@ aws-sync:
 
 aws-destroy:
 	uv run sdlc aws-destroy --dry-run
+
+jira-sync:
+	uv run sdlc jira-sync --epic-key $(EPIC_KEY) --dry-run
+
+jira-kb-create:
+	uv run sdlc jira-kb-create --dry-run
+
+jira-aws-sync:
+	uv run sdlc jira-aws-sync --dry-run
+
+jira-search:
+	uv run sdlc jira-search "$(QUERY)"
 
 test:
 	uv run pytest

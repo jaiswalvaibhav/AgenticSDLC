@@ -80,7 +80,7 @@ def test_find_page_by_title_returns_none_when_no_results():
 
 
 def test_get_descendants_is_metadata_only_no_body_fetched():
-    """The whole point of get_descendants (see CLAUDE.md "Enterprise scale"): no
+    """The whole point of get_descendants (see docs/DECISIONS.md, Phase 0, "Confluence sync scales to the enterprise space"): no
     per-page body fetch, just the descendants listing + one batched version call."""
     client = _client()
     client._session.queue("GET", "/pages/1/descendants", FakeResponse({"results": [

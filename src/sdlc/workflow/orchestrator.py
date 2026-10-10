@@ -3,14 +3,13 @@ tickets), one `handle_status_change` handler (rollup, then step readiness + auto
 trigger), and `check_approvals` (the sdlc-approved/-rejected label check — polled
 separately, since a label add isn't a status change; see CLAUDE.md "Workflow").
 
-Agent execution is faked in Phase 5 (AgentRuntime.run just logs a call, and apply_plan
-is a stub); Phase 6 wires in the real Strands-based analyst agent and real requirement
-ticket creation.
+`_start_step` dispatches automated steps through AgentRuntime (LocalAgentRuntime for
+profile=local, AgentCore for profile=aws — see wiring.py); `apply_plan` turns an
+approved plan.json into real Story + Engineering/Testing Sub-task tickets.
 
-ASSUMPTION (flagged for the user, see adapters/jira.py docstring): rollup queries
-children via JQL `parent = <key>`, which only works uniformly for Epic/Story/Sub-task
-in a team-managed Jira project. A company-managed project needs a different clause for
-Story -> Epic (the "Epic Link" field) — tell me if that's your project type.
+Confirmed by the user: the "AgenticSDLC" Jira project is team-managed, so rollup's
+JQL `parent = <key>` is correct as-is for Epic/Story/Sub-task (see adapters/jira.py's
+docstring for the Jira Cloud shapes this relies on).
 """
 import re
 from pathlib import Path
@@ -138,15 +137,17 @@ def _start_step(step: Step, *, steps_map: dict, tickets: TicketSystem, store: Ob
             return
 
     if step.automation:
-        agent.run(step.automation, {"use_case": use_case, "step_id": step.id,
-                                     "issue_key": key, "dry_run": dry_run})
-        run_state = _run_state(store, use_case)
-        run_state[step.id] = "awaiting_approval"
-        _save_run_state(store, use_case, run_state, dry_run)
-        tickets.add_comment(
-            key, "Agent plan generated (faked in Phase 5 — no real plan yet). Add the "
-                 f"'{cfg['jira']['approval_label']}' label to apply it, or "
-                 f"'{cfg['jira']['reject_label']}' to regenerate.", dry_run=dry_run)
+        result = agent.run(step.automation, {"use_case": use_case, "step_id": step.id,
+                                               "issue_key": key, "dry_run": dry_run})
+        # Only move to awaiting_approval when the task actually produced a plan —
+        # e.g. engine.run_solution_requirements returns status "blocked" (and posts
+        # its own explanatory comment) when an anchor isn't configured yet, in which
+        # case the step ticket should stay as-is, not get a misleading "plan ready"
+        # comment on top of the real one.
+        if result.get("status") == "planned":
+            run_state = _run_state(store, use_case)
+            run_state[step.id] = "awaiting_approval"
+            _save_run_state(store, use_case, run_state, dry_run)
 
 
 def handle_status_change(event: StatusEvent, *, tickets: TicketSystem, store: ObjectStore,
@@ -239,7 +240,7 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
     store.put_json(f"workflow/{use_case}/traceability.json", traceability, dry_run=dry_run)
 
     # Same sprint placement as workflow_start's step Stories (not backlog, not the
-    # active sprint) — see CLAUDE.md "Decisions (sprint placement + status transitions)".
+    # active sprint) — see docs/DECISIONS.md "Decisions (sprint placement + status transitions)".
     if new_story_keys:
         sprint_id = tickets.get_or_create_future_sprint(dry_run=dry_run)
         tickets.add_issues_to_sprint(sprint_id, new_story_keys, dry_run=dry_run)
@@ -332,7 +333,7 @@ def workflow_start(*, tickets: TicketSystem, store: ObjectStore, registry: Workf
 
     # Newly created step Stories go straight into the next (not-yet-started) sprint,
     # not the backlog and not the currently active sprint — per the user's explicit
-    # choice, see CLAUDE.md "Decisions (sprint placement + status transitions)".
+    # choice, see docs/DECISIONS.md "Decisions (sprint placement + status transitions)".
     if new_story_keys:
         sprint_id = tickets.get_or_create_future_sprint(dry_run=dry_run)
         tickets.add_issues_to_sprint(sprint_id, new_story_keys, dry_run=dry_run)

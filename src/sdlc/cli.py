@@ -1,9 +1,9 @@
-"""sdlc CLI. `config show`, `workflow preview`, `sync` and `seed` work; the rest are stubs."""
+"""sdlc CLI. `setup` is the only remaining stub (see docs/BRIEF.md); every other
+command is implemented — see CLAUDE.md's Commands section for the full list."""
 from pathlib import Path
 
 import typer
 
-from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
 from sdlc.agents.analyst.tasks import TASKS
 from sdlc.aws import agent_deploy as agent_deploy_mod
 from sdlc.aws import deploy as aws_deploy_mod
@@ -17,7 +17,7 @@ from sdlc.jira_citations import jira_url_from_s3_uri
 from sdlc.jira_sync import sync_issues as sync_jira_issues
 from sdlc.seed import seed_usecase
 from sdlc.sync_once import sync_once
-from sdlc.wiring import agent_runtime, confluence_client, jira_client, object_store
+from sdlc.wiring import agent_runtime, confluence_client, jira_client, knowledge_index, object_store
 from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import WorkflowRegistry
 
@@ -29,6 +29,18 @@ app.add_typer(workflow_app, name="workflow")
 def _stub(command: str, phase: int) -> None:
     typer.echo(f"`{command}` is not implemented yet — it lands in Phase {phase}. See docs/BRIEF.md.")
     raise typer.Exit(code=1)
+
+
+def _step_issue_key(store, use_case: str, step: str) -> str:
+    """Looks up the step's Jira key in steps.json, or exits — shared by analyst-plan
+    and analyst-apply, which both bypass the orchestrator and need this ticket to
+    already exist from a prior `workflow start`."""
+    steps_map = store.get_json(f"workflow/{use_case}/steps.json") or {}
+    issue_key = steps_map.get(step)
+    if not issue_key:
+        typer.echo(f"no ticket for step {step!r} yet — run `workflow start` first")
+        raise typer.Exit(code=1)
+    return issue_key
 
 
 @app.command()
@@ -64,8 +76,7 @@ def sync(root_page_id: str = typer.Option(..., "--root-page-id", help="Confluenc
 def search(query: str, top_k: int = 10) -> None:
     """Search the Managed Knowledge Base, scoped to the configured use case."""
     cfg = load_config()
-    index = BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["knowledge_base_id"],
-                                   region=cfg["aws"]["region"])
+    index = knowledge_index(cfg)
     for chunk in index.search(query, use_case=cfg["use_case"], top_k=top_k):
         typer.echo(f"[{chunk.score:.3f}] {chunk.page_title}  ({chunk.page_url})")
         typer.echo(f"    {chunk.text[:300]}")
@@ -114,8 +125,7 @@ def jira_search(query: str, top_k: int = 10) -> None:
     """Search the Jira Knowledge Base, scoped to the configured use case. Manual
     testing command; not wired into the analyst agent's search_knowledge tool."""
     cfg = load_config()
-    index = BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["jira_knowledge_base_id"],
-                                   region=cfg["aws"]["region"])
+    index = knowledge_index(cfg, kb_id=cfg["aws"]["jira_knowledge_base_id"])
     base_url = cfg["atlassian"]["base_url"]
     for chunk in index.search(query, use_case=cfg["use_case"], top_k=top_k):
         jira_url = jira_url_from_s3_uri(chunk.s3_uri, base_url) or chunk.s3_uri
@@ -139,11 +149,7 @@ def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
         typer.echo(f"no analyst task registered for step {step!r}")
         raise typer.Exit(code=1)
 
-    steps_map = store.get_json(f"workflow/{use_case}/steps.json") or {}
-    issue_key = steps_map.get(step)
-    if not issue_key:
-        typer.echo(f"no ticket for step {step!r} yet — run `workflow start` first")
-        raise typer.Exit(code=1)
+    issue_key = _step_issue_key(store, use_case, step)
 
     result = agent_runtime(cfg, tickets, store).run(
         task.id, {"use_case": use_case, "step_id": step, "issue_key": issue_key, "dry_run": dry_run})
@@ -161,11 +167,7 @@ def analyst_apply(use_case: str = typer.Option(None, "--use-case"),
     tickets = jira_client(cfg)
     store = object_store(cfg)
     statuses = orchestrator.load_terminology(use_case)["statuses"]
-    steps_map = store.get_json(f"workflow/{use_case}/steps.json") or {}
-    issue_key = steps_map.get(step)
-    if not issue_key:
-        typer.echo(f"no ticket for step {step!r} yet — run `workflow start` first")
-        raise typer.Exit(code=1)
+    issue_key = _step_issue_key(store, use_case, step)
 
     orchestrator.apply_plan(step, issue_key, tickets=tickets, store=store, use_case=use_case,
                              cfg=cfg, done_status=statuses["done"], dry_run=dry_run)

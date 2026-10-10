@@ -17,7 +17,7 @@ batch still completes, and a page whose last recorded status was "failed" is
 retried on the next sync even if its version hasn't changed since. See
 jira_sync.py's TRACE_KEY for the equivalent in the Jira downloader.
 
-Scaling to an enterprise space (~3000 pages, see CLAUDE.md "Enterprise scale: Confluence sync"):
+Scaling to an enterprise space (~3000 pages, see docs/DECISIONS.md, Phase 0, "Confluence sync scales to the enterprise space"):
 doc_source.get_descendants() is metadata-only (no page body), so the diff loop below
 decides what's new/changed/moved/deleted using only that cheap metadata. Only the
 new/changed pages get a full-body get_page() call, and those run concurrently in

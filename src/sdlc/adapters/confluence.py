@@ -83,7 +83,7 @@ class ConfluenceClient:
         """Titles of every ancestor, root-first, joined with '/' (no page IDs). Live,
         one-off lookup for a single arbitrary page (e.g. resolving an anchor page in
         Phase 6) — NOT used by get_descendants, which builds paths in-memory instead
-        to avoid an API call per page. See CLAUDE.md "Enterprise scale: Confluence sync"."""
+        to avoid an API call per page. See docs/DECISIONS.md, Phase 0, "Confluence sync scales to the enterprise space"."""
         ancestors = self._get(f"/pages/{page_id}/ancestors").get("results", [])
         titles = [self._get(f"/pages/{a['id']}")["title"] for a in ancestors]
         return "/".join([self.space_key, *titles])
@@ -118,7 +118,7 @@ class ConfluenceClient:
         ancestor-API call, so this scales to a ~3000-page space (O(pages/limit) requests,
         not O(n)). Returned pages have html="" — callers fetch the full body via
         get_page() only for pages that are actually new/changed (see confluence_sync.py
-        and CLAUDE.md "Enterprise scale: Confluence sync").
+        and docs/DECISIONS.md, Phase 0, "Confluence sync scales to the enterprise space").
 
         Note: root_page_id is treated as the top of the mirrored folder tree — its real
         Confluence ancestors above it (if any) are intentionally not included, so a

@@ -2,7 +2,7 @@
 dedicated to the Jira downloader's corpus — entirely separate from the Confluence
 KB `aws-deploy` creates. Reuses the storage stack's existing S3 bucket + KB service
 role (storage.yaml, deployed by `aws-deploy`); no new CloudFormation stack. Run by
-hand, once; never called by `aws-deploy` or any other command (see CLAUDE.md "Jira
+hand, once; never called by `aws-deploy` or any other command (see docs/DECISIONS.md "Jira
 downloader" — this pipeline is explicit-trigger-only throughout).
 
 Recorded in the same resource ledger `aws-deploy` uses, with kind "knowledge-base"/
@@ -10,13 +10,10 @@ Recorded in the same resource ledger `aws-deploy` uses, with kind "knowledge-bas
 change to destroy.py is needed for these to be torn down along with everything
 else it reverses.
 """
-from pathlib import Path
-
-import yaml
-
-from sdlc.aws import cfn, kb
-from sdlc.aws.deploy import _account_id
-from sdlc.aws.ledger import Ledger, Resource
+from sdlc.aws import cfn
+from sdlc.aws.deploy import create_kb_and_data_source
+from sdlc.aws.ledger import Ledger
+from sdlc.config import save_aws_values
 
 STORAGE_TEMPLATE_PATH = "infra/aws/templates/storage.yaml"
 
@@ -27,37 +24,15 @@ def deploy_jira_kb(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool
     stack_name = f"{aws['stack_prefix']}-storage"
     ledger = Ledger()
 
+    role_arn = "(dry-run)" if dry_run else cfn.stack_outputs(stack_name=stack_name, region=region)["KBServiceRoleArn"]
+    kb_id, data_source_id = create_kb_and_data_source(
+        aws, ledger, name_prefix=f"{aws['stack_prefix']}-jira", docs_prefix=aws["jira_docs_prefix"],
+        role_arn=role_arn, bucket_name=bucket_name, region=region, dry_run=dry_run,
+        log_label="a second Managed Knowledge Base + S3 data source for Jira",
+    )
     if dry_run:
-        print("[dry-run] would read the storage stack's outputs (bucket, KB service role) "
-              "and create a second Managed Knowledge Base + S3 data source for Jira")
-        kb.ensure_knowledge_base(name=f"{aws['stack_prefix']}-jira-kb", role_arn="(dry-run)",
-                                  region=region, embedding_model_type=aws["embedding_model_type"],
-                                  embedding_model_arn=aws["embedding_model_arn"], dry_run=True)
-        kb.ensure_data_source(knowledge_base_id="(dry-run)", name=f"{aws['stack_prefix']}-jira-s3",
-                               bucket_name=bucket_name, bucket_owner_account_id="(dry-run)",
-                               metadata_prefix=aws["jira_docs_prefix"], region=region, dry_run=True)
         return
 
-    outputs = cfn.stack_outputs(stack_name=stack_name, region=region)
-    role_arn = outputs["KBServiceRoleArn"]
-
-    kb_id = kb.ensure_knowledge_base(
-        name=f"{aws['stack_prefix']}-jira-kb", role_arn=role_arn, region=region,
-        embedding_model_type=aws["embedding_model_type"],
-        embedding_model_arn=aws["embedding_model_arn"], dry_run=False,
-    )
-    ledger.append(Resource(kind="knowledge-base", id=kb_id), dry_run=False)
-
-    data_source_id = kb.ensure_data_source(
-        knowledge_base_id=kb_id, name=f"{aws['stack_prefix']}-jira-s3", bucket_name=bucket_name,
-        bucket_owner_account_id=_account_id(region), metadata_prefix=aws["jira_docs_prefix"],
-        region=region, dry_run=False,
-    )
-    ledger.append(Resource(kind="data-source", id=data_source_id,
-                            extra={"knowledge_base_id": kb_id}), dry_run=False)
-
-    cfg["aws"]["jira_knowledge_base_id"] = kb_id
-    cfg["aws"]["jira_data_source_id"] = data_source_id
-    Path(config_path).write_text(yaml.safe_dump(cfg, sort_keys=False))
+    save_aws_values({"jira_knowledge_base_id": kb_id, "jira_data_source_id": data_source_id}, config_path)
     print(f"jira_knowledge_base_id={kb_id} jira_data_source_id={data_source_id} "
           f"(written to {config_path})")

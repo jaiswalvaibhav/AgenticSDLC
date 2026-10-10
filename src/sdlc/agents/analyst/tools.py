@@ -1,6 +1,6 @@
 """The analyst agent's search_knowledge tool. Our own, not Strands' built-in `retrieve`
 tool — that one hardcodes vectorSearchConfiguration, which a Managed Knowledge Base
-doesn't support (see CLAUDE.md "Decisions"). Scoped to one use_case so other use cases
+doesn't support (see docs/DECISIONS.md, Phase 0). Scoped to one use_case so other use cases
 in the same KB never leak into results."""
 from strands import tool
 

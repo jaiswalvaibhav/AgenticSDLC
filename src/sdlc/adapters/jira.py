@@ -36,12 +36,13 @@ Sprint placement uses the separate Jira Software "Agile" REST root, /rest/agile/
 - POST /rest/agile/1.0/sprint {name, originBoardId}    -> create one (state "future")
 - POST /rest/agile/1.0/sprint/{sprintId}/issue {"issues": [...]} -> move from backlog
 
-ASSUMPTION flagged for the user to confirm: rollup (_rollup in orchestrator.py) queries
-children with JQL `parent = <key>`, which is how Jira's simplified issue hierarchy
-(team-managed projects) relates Sub-task -> Story -> Epic uniformly. A classic
-company-managed project instead uses a separate "Epic Link" custom field for
-Story -> Epic, and `parent` only for Sub-task -> Story. If your Jira project is
-company-managed, tell me and this needs a project-type-aware JQL clause.
+Confirmed by the user: rollup (_rollup in orchestrator.py) queries children with JQL
+`parent = <key>`, which is how Jira's simplified issue hierarchy (team-managed
+projects) relates Sub-task -> Story -> Epic uniformly — the "AgenticSDLC" Jira
+project is team-managed, so this is correct as-is. A classic company-managed project
+instead uses a separate "Epic Link" custom field for Story -> Epic, and `parent` only
+for Sub-task -> Story; a different project type would need a project-type-aware JQL
+clause here.
 """
 import base64
 

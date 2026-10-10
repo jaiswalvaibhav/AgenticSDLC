@@ -1,5 +1,6 @@
 """Local AgentRuntime (profile=local): dispatches to the analyst task registry
-(analyst/tasks.py). The aws profile's AgentRuntime (AgentCore) is built in Phase 7.
+(analyst/tasks.py). The aws profile's AgentRuntime invokes AgentCore instead — see
+adapters/agentcore_runtime.py and wiring.agent_runtime.
 """
 from sdlc.agents.analyst.tasks import TASKS
 from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, TicketSystem

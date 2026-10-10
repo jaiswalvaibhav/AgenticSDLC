@@ -6,15 +6,14 @@ Verified against the Bedrock KB docs (Oct 2026): StartIngestionJob(knowledgeBase
 dataSourceId) -> ingestionJobId; GetIngestionJob(...) -> status, COMPLETE when done.
 """
 import hashlib
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import boto3
 
-from sdlc.adapters.local_store import LocalObjectStore
 from sdlc.pdf import render_page_pdf
+from sdlc.wiring import object_store
 
 POLL_INTERVAL_SECONDS = 15
 POLL_TIMEOUT_SECONDS = 20 * 60
@@ -43,7 +42,7 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
     aws, data_dir = cfg["aws"], Path(cfg["data_dir"])
     region, bucket, docs_prefix = aws["region"], aws["bucket"], aws["docs_prefix"]
     use_case = cfg["use_case"]
-    store = LocalObjectStore(cfg["state_dir"])
+    store = object_store(cfg)
     manifest = store.get_json("manifest.json") or {}
     s3 = boto3.client("s3", region_name=region)
     result = AwsSyncResult()
@@ -51,39 +50,22 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
     for page_id, entry in manifest.items():
         # Gate on the Confluence page version confluence_sync already tracked, not by
         # rendering every page's PDF just to hash-compare — same O(n) mistake we fixed
-        # for Confluence sync itself (CLAUDE.md "Enterprise scale"). Only pages whose
+        # for Confluence sync itself (docs/DECISIONS.md, Phase 0). Only pages whose
         # version actually changed since the last aws-sync get rendered here.
         if entry.get("rendered_version") == entry["version"]:
             continue
         page_dir = data_dir / "corpus" / entry["path"]
-        # meta = json.loads((page_dir / "meta.json").read_text())  # only used by the disabled metadata block below
         pdf_bytes = render_page_pdf(page_dir)
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
+        # No .metadata.json sidecar upload: this account's region never scans/applies
+        # it (see _pdf_key's docstring above) — use_case scoping is done via the S3
+        # key path instead, read back out client-side in bedrock_kb.py's search().
         key = _pdf_key(docs_prefix, use_case, page_id)
-        # TEMPORARILY DISABLED along with the .metadata.json upload/delete below.
-        # S3 data source metadata sidecars take flat values, not the {"value": {"type":
-        # ...}} shape (that's IngestKnowledgeBaseDocuments' format, for a different, non-S3
-        # ingestion path) — confirmed live: the wrapped form ingested with no error but
-        # silently dropped every custom field, leaving only Bedrock's built-in `_...` ones.
-        # metadata = {
-        #     "metadataAttributes": {
-        #         "use_case": use_case,
-        #         "space": meta["spaceKey"],
-        #         "page_id": page_id,
-        #         "title": meta["title"],
-        #         "url": meta["url"],
-        #         "version": meta["version"],
-        #     }
-        # }
         if dry_run:
             print(f"[dry-run] would upload s3://{bucket}/{key} ({len(pdf_bytes)} bytes)")
         else:
             s3.put_object(Bucket=bucket, Key=key, Body=pdf_bytes, ContentType="application/pdf")
-            # TEMPORARILY DISABLED: .metadata.json sidecar upload (see _pdf_key's docstring
-            # — this account's region doesn't scan/apply it anyway). Restore by uncommenting.
-            # s3.put_object(Bucket=bucket, Key=f"{key}.metadata.json",
-            #                Body=json.dumps(metadata).encode(), ContentType="application/json")
             entry["pdf_hash"] = pdf_hash
             entry["s3_key"] = key
             entry["rendered_version"] = entry["version"]
@@ -102,8 +84,6 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
                 print(f"[dry-run] would delete orphaned s3://{bucket}/{key}")
             else:
                 s3.delete_object(Bucket=bucket, Key=key)
-                # TEMPORARILY DISABLED: see the matching upload-side disable above.
-                # s3.delete_object(Bucket=bucket, Key=f"{key}.metadata.json")
             result.deleted.append(key)
 
     store.put_json("manifest.json", manifest, dry_run=dry_run)
@@ -112,20 +92,31 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
         print("nothing changed since the last aws-sync; skipping ingestion")
         return result
 
-    bedrock_agent = boto3.client("bedrock-agent", region_name=region)
-    if dry_run:
-        print("[dry-run] would start-ingestion-job and poll until COMPLETE")
-        return result
-
-    job = bedrock_agent.start_ingestion_job(
-        knowledgeBaseId=aws["knowledge_base_id"], dataSourceId=aws["data_source_id"],
-    )["ingestionJob"]
-    result.ingestion_job_id = job["ingestionJobId"]
-    result.ingestion_status = _poll_ingestion_job(
-        bedrock_agent, knowledge_base_id=aws["knowledge_base_id"],
-        data_source_id=aws["data_source_id"], ingestion_job_id=job["ingestionJobId"],
+    result.ingestion_job_id, result.ingestion_status = run_ingestion(
+        region=region, knowledge_base_id=aws["knowledge_base_id"],
+        data_source_id=aws["data_source_id"], dry_run=dry_run,
     )
     return result
+
+
+def run_ingestion(*, region: str, knowledge_base_id: str, data_source_id: str,
+                   dry_run: bool) -> tuple[str | None, str | None]:
+    """Starts a Knowledge Base ingestion job and polls it to completion. Shared by
+    aws_sync.py (Confluence KB) and jira_aws_sync.py (Jira KB) — same Bedrock API,
+    different knowledge_base_id/data_source_id."""
+    if dry_run:
+        print("[dry-run] would start-ingestion-job and poll until COMPLETE")
+        return None, None
+
+    bedrock_agent = boto3.client("bedrock-agent", region_name=region)
+    job = bedrock_agent.start_ingestion_job(
+        knowledgeBaseId=knowledge_base_id, dataSourceId=data_source_id,
+    )["ingestionJob"]
+    job_id = job["ingestionJobId"]
+    return job_id, _poll_ingestion_job(
+        bedrock_agent, knowledge_base_id=knowledge_base_id,
+        data_source_id=data_source_id, ingestion_job_id=job_id,
+    )
 
 
 def _poll_ingestion_job(client, *, knowledge_base_id: str, data_source_id: str,

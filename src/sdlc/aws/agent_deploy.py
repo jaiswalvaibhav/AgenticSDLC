@@ -21,6 +21,7 @@ import yaml
 
 from sdlc.aws import cfn
 from sdlc.aws.ledger import Ledger, Resource
+from sdlc.config import save_aws_values
 
 TEMPLATE_PATH = "infra/aws/templates/agent.yaml"
 ENTRYPOINT = "src/sdlc/agents/agentcore_app.py"
@@ -138,6 +139,5 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
         }},
     )
 
-    cfg["aws"]["agent_runtime_arn"] = agent_runtime_arn
-    Path(config_path).write_text(yaml.safe_dump(cfg, sort_keys=False))
+    save_aws_values({"agent_runtime_arn": agent_runtime_arn}, config_path)
     print(f"agent_runtime_arn={agent_runtime_arn} (written to {config_path})")

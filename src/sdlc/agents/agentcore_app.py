@@ -10,17 +10,15 @@ deployed Runtime this session — see CLAUDE.md for what's unverified by executi
 
 Credentials/config: profile=aws passes Atlassian credentials and config as plain
 environment variables on the Runtime (create_agent_runtime's environmentVariables),
-per the user's choice — see CLAUDE.md "Decisions" for the plaintext-vs-Secrets-Manager
+per the user's choice — see docs/DECISIONS.md, Phase 7, for the plaintext-vs-Secrets-Manager
 tradeoff. load_config() already reads env var overrides the same way it does locally.
 """
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
-from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
-from sdlc.adapters.confluence import ConfluenceClient
-from sdlc.adapters.jira import JiraClient
 from sdlc.adapters.s3_store import S3ObjectStore
 from sdlc.agents.analyst.tasks import TASKS
 from sdlc.config import load_config
+from sdlc.wiring import confluence_client, jira_client, knowledge_index as knowledge_index_factory
 
 app = BedrockAgentCoreApp()
 
@@ -34,18 +32,16 @@ def _dispatch(payload: dict) -> dict:
         return {"status": "error", "reason": f"no runnable analyst task for {task_id!r}"}
 
     cfg = load_config()
-    atlassian = cfg["atlassian"]
-    doc_source = ConfluenceClient(base_url=atlassian["base_url"], email=atlassian["email"],
-                                   api_token=atlassian["api_token"],
-                                   space_key=cfg["confluence"]["space_key"])
-    tickets = JiraClient(base_url=atlassian["base_url"], email=atlassian["email"],
-                         api_token=atlassian["api_token"], project_key=cfg["jira"]["project_key"])
-    knowledge_index = BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["knowledge_base_id"],
-                                             region=cfg["aws"]["region"])
+    doc_source = confluence_client(cfg)
+    tickets = jira_client(cfg)
+    index = knowledge_index_factory(cfg)
+    # Always S3 here: this is the container the AgentCore Runtime deploys, which
+    # only ever runs under profile=aws (unlike wiring.object_store, which also
+    # handles profile=local for the CLI/Lambda).
     store = S3ObjectStore(bucket=cfg["aws"]["bucket"], region=cfg["aws"]["region"],
                            prefix=cfg["aws"]["state_prefix"])
 
-    return task.run(context, doc_source=doc_source, knowledge_index=knowledge_index,
+    return task.run(context, doc_source=doc_source, knowledge_index=index,
                      tickets=tickets, store=store, cfg=cfg, dry_run=context.get("dry_run", True))
 
 

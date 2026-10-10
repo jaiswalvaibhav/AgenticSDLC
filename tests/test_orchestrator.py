@@ -141,6 +141,32 @@ def test_downstream_step_starts_once_input_is_done_with_artifact(tickets, store,
     assert run_state["b"] == "awaiting_approval"
 
 
+def test_blocked_agent_result_does_not_set_awaiting_approval(tickets, store, cfg, registry, monkeypatch):
+    """engine.run_solution_requirements returns status "blocked" (e.g. an anchor
+    page_id isn't configured yet) and posts its own explanatory comment — the
+    orchestrator must not also move run_state to awaiting_approval or add a
+    second, misleading "plan ready" comment on top of it."""
+    monkeypatch.setattr(orchestrator, "load_terminology", lambda uc: {"statuses": STATUSES})
+    a_key = _step_issue(tickets, store, UC, "a")
+    b_key = _step_issue(tickets, store, UC, "b")
+    tickets.transition_issue(a_key, STATUSES["done"], dry_run=False)
+    tickets.artifacts.add(a_key)
+
+    class BlockedAgentRuntime:
+        def run(self, task_id, context):
+            return {"status": "blocked", "reason": "anchor not configured"}
+
+    event = StatusEvent(a_key, STATUSES["in_progress"], STATUSES["done"])
+    orchestrator.handle_status_change(event, tickets=tickets, store=store, cfg=cfg,
+                                       registry=registry, agent=BlockedAgentRuntime(), dry_run=False)
+
+    run_state = store.get_json(f"workflow/{UC}/run_state.json") or {}
+    assert run_state.get("b") is None
+    # Only the "Inputs ready (...)" comment from _start_step itself — no extra
+    # "Agent plan generated" comment on top of it.
+    assert tickets.comments[b_key] == [f"Inputs ready (a: {a_key})."]
+
+
 def test_downstream_step_waits_without_artifact(tickets, store, cfg, registry, monkeypatch):
     monkeypatch.setattr(orchestrator, "load_terminology", lambda uc: {"statuses": STATUSES})
     a_key = _step_issue(tickets, store, UC, "a")

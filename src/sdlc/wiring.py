@@ -30,8 +30,11 @@ def jira_client(cfg: dict) -> JiraClient:
     )
 
 
-def knowledge_index(cfg: dict) -> BedrockKnowledgeIndex:
-    return BedrockKnowledgeIndex(knowledge_base_id=cfg["aws"]["knowledge_base_id"], region=cfg["aws"]["region"])
+def knowledge_index(cfg: dict, kb_id: str | None = None) -> BedrockKnowledgeIndex:
+    """kb_id defaults to the Confluence KB (aws.knowledge_base_id); pass
+    cfg["aws"]["jira_knowledge_base_id"] for the separate Jira KB (see jira_search)."""
+    return BedrockKnowledgeIndex(knowledge_base_id=kb_id or cfg["aws"]["knowledge_base_id"],
+                                  region=cfg["aws"]["region"])
 
 
 def object_store(cfg: dict):

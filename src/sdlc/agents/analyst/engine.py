@@ -49,7 +49,7 @@ def _build_local_llm_model(provider: str):
     """Build the Strands model for one of the local-only, non-Bedrock stopgap providers.
 
     Both are billed to the user's own account rather than AWS, so both confirm before
-    every call — see CLAUDE.md "Decisions (local-only Anthropic API stopgap)".
+    every call — see docs/DECISIONS.md "Decisions (local-only Anthropic API stopgap)".
     """
     import os
 
@@ -105,8 +105,8 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
     provider = os.environ.get("ANALYST_LLM_PROVIDER")
     if cfg["profile"] == "local" and provider:
         # Stopgap until Bedrock Claude model access is granted on this account (see
-        # CLAUDE.md "Decisions"). local-profile only — never used by the aws profile's
-        # Lambda/AgentCore path.
+        # docs/DECISIONS.md "Decisions (local-only Anthropic API stopgap)"). local-profile
+        # only — never used by the aws profile's Lambda/AgentCore path.
         model = _build_local_llm_model(provider)
     else:
         model_id = cfg["aws"]["llm_model_id"]

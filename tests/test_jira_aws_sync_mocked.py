@@ -13,6 +13,7 @@ def _cfg(tmp_path: Path) -> dict:
     (tmp_path / "state").mkdir()
     (tmp_path / "data").mkdir()
     return {
+        "profile": "local",
         "use_case": "demo_order_fulfilment",
         "state_dir": str(tmp_path / "state"),
         "data_dir": str(tmp_path / "data"),

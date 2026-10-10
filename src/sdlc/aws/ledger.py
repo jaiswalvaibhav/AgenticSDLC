@@ -11,7 +11,7 @@ DEFAULT_PATH = Path("infra/aws/.ledger.json")
 
 @dataclass(frozen=True)
 class Resource:
-    kind: str  # "cfn-stack" | "knowledge-base" | "data-source"
+    kind: str  # "cfn-stack" | "knowledge-base" | "data-source" | "agentcore-runtime"
     id: str    # stack name, knowledge base id, or data source id
     extra: dict | None = None  # e.g. {"knowledge_base_id": "..."} for a data source
 

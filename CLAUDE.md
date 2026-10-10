@@ -2,10 +2,9 @@
 
 Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turns Data Design Solution (DDS) and Technical Design Solution (TDS) pages into Jira work. The full brief is in `docs/BRIEF.md`.
 
-**Status**: Phases 0–8 done (see `docs/BRIEF.md` "Phases" for the checklist).
+**Status**: Phases 0–8 done (see `docs/BRIEF.md` "Phases" for the checklist). The full dated decision log — what was verified against official docs, what the user confirmed directly, what's still unverified — lives in `docs/DECISIONS.md`.
 
 ## Ground rules
-- Work in phases (see `docs/BRIEF.md`). Stop after each phase, summarise it in 2–3 sentences, and confirm before moving on.
 - If anything is ambiguous, ask instead of guessing.
 - Never invent AWS (Bedrock KB, AgentCore), Jira or Confluence API or CLI details. Check the current official docs first, and say what was verified.
 - Write the minimal code that fully meets the requirement. No speculative abstractions.
@@ -13,7 +12,7 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - When changing code, touch only the lines that need to change.
 - This is a public repo. Keep it generic: no employer names, domains, space keys or real data. Use placeholders such as `your-domain.atlassian.net` and `SPACE_KEY`. `usecases/enterprise*/` is gitignored.
 - Secrets come only from env vars or the gitignored `.env`. Never log or commit tokens.
-- Every remote write (Confluence, Jira, AWS) supports `--dry-run`, and dry-run is the default (`--apply` to execute).
+- Every remote write (Confluence, Jira, AWS) supports dry-run, and dry-run is the default. Most commands use `--no-dry-run` to execute; `workflow start` uses `--apply` instead (see Commands below for which).
 
 ## Architecture
 - **Ports** (`src/sdlc/ports.py`): DocumentSource, TicketSystem, StatusSource, ObjectStore, KnowledgeIndex, LLM and AgentRuntime. Each has a fake in `src/sdlc/adapters/fake.py` for tests.
@@ -22,217 +21,46 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
   - `aws`: state lives in `s3://<bucket>/state/` (`S3ObjectStore`), the agent runs on AgentCore (`AgentCoreAgentRuntime`, invoking it via `invoke_agent_runtime`), and the orchestrator runs on an EventBridge schedule (a Lambda — see "AWS infra" below). `src/sdlc/wiring.py` has the one `profile`-dispatch point for ObjectStore/AgentRuntime; both the CLI and the Lambda import from it.
 - **Knowledge pipeline**:
   1. Confluence → `.data/corpus/` (`page.html`, `_attachments/`, `meta.json`; no `.md` files).
-  2. WeasyPrint renders each page to `<pageId>.pdf`, written with `<pageId>.pdf.metadata.json` to S3.
+  2. WeasyPrint renders each page to `<pageId>.pdf`, uploaded to S3 (use_case-scoped by its S3 key path — see Gotchas).
   3. Ingestion into the Managed KB.
   4. Our own `search_knowledge` tool calls Retrieve with `managedSearchConfiguration` and a `use_case` filter.
-- **Workflow**: `config/workflow.yaml` lists the lifecycle steps. `workflow start` creates one Jira epic per use case and one Story per selected step (idempotent via stable marker labels), linked with "Blocks". `orchestrator.handle_status_change()` is the one handler every status event goes through: rollup (Sub-task → Story → Epic), then — if the issue just reached Done and is a step — checks downstream steps' inputs (Done + has an artifact) and starts whichever became ready, running automated steps through `AgentRuntime` (`LocalAgentRuntime` for `profile: local`; AgentCore lands in Phase 7). `orchestrator.check_approvals()` is polled separately (a label add isn't a status change) for the `sdlc-approved`/`sdlc-rejected` labels, and calls `orchestrator.apply_plan()`, which turns a stored `plan.json` into real Story + Engineering/Testing Sub-task tickets.
-- **Analyst agent** (`src/sdlc/agents/analyst/`): `anchors.py` resolves DDS/TDS via `page_roles.yaml` (page_id only — no silent title-match fallback, see Decisions) and reads them in full, section by section (split at h1–h3), with diagrams as image bytes; reads from the local corpus when synced, else live Confluence. `engine.py` runs a Strands `Agent` (Bedrock Claude) with our own `search_knowledge` tool, producing a Pydantic `SolutionRequirementsPlan` via `structured_output`, written to `workflow/<use_case>/plan.json`/`.md`. `tasks.py` is the task registry (`AnalystTask.run`); `agents/runtime.py`'s `LocalAgentRuntime` dispatches to it.
+  - The Jira downloader (below) is a second, separate knowledge pipeline — its own KB, its own S3 prefix, explicit-trigger only.
+- **Workflow**: `config/workflow.yaml` lists the lifecycle steps. `workflow start` creates one Jira epic per use case and one Story per selected step (idempotent via stable marker labels), linked with "Blocks". `orchestrator.handle_status_change()` is the one handler every status event goes through: rollup (Sub-task → Story → Epic), then — if the issue just reached Done and is a step — checks downstream steps' inputs (Done + has an artifact) and starts whichever became ready, running automated steps through `AgentRuntime` (`LocalAgentRuntime` for `profile: local`, AgentCore for `profile: aws` — see `wiring.agent_runtime`). `orchestrator.check_approvals()` is polled separately (a label add isn't a status change) for the `sdlc-approved`/`sdlc-rejected` labels, and calls `orchestrator.apply_plan()`, which turns a stored `plan.json` into real Story + Engineering/Testing Sub-task tickets.
+- **Analyst agent** (`src/sdlc/agents/analyst/`): `anchors.py` resolves DDS/TDS via `page_roles.yaml` (page_id only — no silent title-match fallback, see Gotchas) and reads them in full, section by section (split at h1–h3), with diagrams as image bytes; reads from the local corpus when synced, else live Confluence. `engine.py` runs a Strands `Agent` (Bedrock Claude, or a local-only Anthropic/Gemini stopgap — see Gotchas) with our own `search_knowledge` tool, producing a Pydantic `SolutionRequirementsPlan` via `structured_output`, written to `workflow/<use_case>/plan.json`/`.md` and published as a Confluence page. `tasks.py` is the task registry (`AnalystTask.run`); `agents/runtime.py`'s `LocalAgentRuntime` dispatches to it.
 - **Use cases**: `usecases/<name>/` holds the config, terminology, page roles and templates for that use case. Adding a use case needs no code changes.
-- **AWS infra** (`infra/aws/templates/`, `src/sdlc/aws/`): `storage.yaml` (Phase 4) is the S3 docs bucket + KB service role. `agent.yaml` (Phase 7) is the AgentCore execution role, the scheduled-orchestrator Lambda (`aws/orchestrator_lambda.py`, a thin wrapper around `sync_once()`) and its EventBridge schedule. `aws-deploy` runs `aws/deploy.py` then `aws/agent_deploy.py`: CloudFormation for everything CFN can do, then a CLI step for whatever it can't (the Managed KB; the AgentCore Runtime container+resource, via the `agentcore` CLI toolkit). Everything created is recorded in `infra/aws/.ledger.json`; `aws-destroy` reverses it.
+- **AWS infra** (`infra/aws/templates/`, `src/sdlc/aws/`): `storage.yaml` is the S3 docs bucket + KB service role. `agent.yaml` is the AgentCore execution role, the scheduled-orchestrator Lambda (`aws/orchestrator_lambda.py`, a thin wrapper around `sync_once()`) and its EventBridge schedule. `aws-deploy` runs `aws/deploy.py` then `aws/agent_deploy.py`: CloudFormation for everything CFN can do, then a CLI step for whatever it can't (the Managed KB; the AgentCore Runtime container+resource, via the `agentcore` CLI toolkit). Everything created is recorded in `infra/aws/.ledger.json`; `aws-destroy` reverses it.
+- **Jira downloader** (`jira_sync.py`, `jira_aws_sync.py`, `jira_citations.py`): a fully separate pipeline (own KB, own S3 prefix, own CLI commands) that mirrors a Jira epic's tree (`--epic-key` → Stories → Sub-tasks) into `.data/corpus_jira/` as Markdown, for its own Knowledge Base. Explicit-trigger only — never called by `workflow start`, `sync-progress`/`watch-progress`, `aws-deploy`/`aws-sync`, or any orchestrator path, and not wired into the analyst agent's `search_knowledge` tool. See `docs/DECISIONS.md` for the full design.
 
 ## Commands
 - `uv sync`: install dependencies.
-- `uv run sdlc --help`: list all commands (`make <target>` wraps them).
+- `uv run sdlc --help`: list all commands (`make <target>` wraps the common ones).
 - `uv run sdlc config show`: show the merged config, with secrets masked.
 - `uv run sdlc workflow preview --use-case demo_order_fulfilment --from solution_requirements [--steps data_contract]`: preview the tickets that would be created.
-- `uv run sdlc sync --root-page-id <id>`: download a Confluence tree into `.data/corpus/`.
-- `uv run sdlc seed [--use-case demo_order_fulfilment]`: create the demo Confluence pages + diagrams (dry-run by default; `--no-dry-run` to actually create them — needs real Atlassian credentials in `.env` and a `dot` binary installed for the diagrams).
-- `uv run sdlc aws-deploy`: deploy the storage stack (CloudFormation: S3 bucket + KB service role) and create the Managed Knowledge Base + data source (CLI step). Writes `knowledge_base_id`/`data_source_id`/`kb_role_arn` back into `config.yaml`.
-- `uv run sdlc aws-sync`: render changed pages to PDF, sync them + `.metadata.json` to S3, run and poll a Knowledge Base ingestion job.
+- `uv run sdlc sync --root-page-id <id> [--no-dry-run]`: download a Confluence tree into `.data/corpus/`.
+- `uv run sdlc seed [--use-case demo_order_fulfilment] [--no-dry-run]`: create the demo Confluence pages + diagrams — needs real Atlassian credentials in `.env` and a `dot` binary for the diagrams.
+- `uv run sdlc aws-deploy [--no-dry-run]`: deploy the storage stack (CloudFormation: S3 bucket + KB service role), create the Managed Knowledge Base + data source, and (if `profile: aws`) the agent infra. Writes the resolved ids back into `config.yaml`.
+- `uv run sdlc aws-sync [--no-dry-run]`: render changed pages to PDF, sync them to S3, run and poll a Knowledge Base ingestion job.
 - `uv run sdlc search "<query>"`: Retrieve against the Managed KB, scoped to `use_case`.
-- `uv run sdlc aws-destroy`: delete everything `aws-deploy` recorded in `infra/aws/.ledger.json`, in reverse order.
+- `uv run sdlc aws-destroy [--no-dry-run]`: delete everything `aws-deploy` recorded in `infra/aws/.ledger.json`, in reverse order.
 - `uv run sdlc workflow start --use-case demo_order_fulfilment [--from solution_requirements] [--apply]`: create the epic + step tickets.
-- `uv run sdlc sync-progress` / `watch-progress`: one-shot / looping poll of Jira status changes → rollup + readiness + approval check.
-- `uv run sdlc analyst-plan --use-case demo_order_fulfilment [--step solution_requirements]`: manually run the analyst task (needs `aws.llm_model_id` and a populated KB).
-- `uv run sdlc analyst-apply --use-case demo_order_fulfilment [--step solution_requirements]`: manually apply a stored plan.json into Jira.
+- `uv run sdlc sync-progress` / `watch-progress [--no-dry-run]`: one-shot / looping poll of Jira status changes → rollup + readiness + approval check.
+- `uv run sdlc analyst-plan --use-case demo_order_fulfilment [--step solution_requirements] [--no-dry-run]`: manually run the analyst task (needs `aws.llm_model_id` and a populated KB).
+- `uv run sdlc analyst-apply --use-case demo_order_fulfilment [--step solution_requirements] [--no-dry-run]`: manually apply a stored plan.json into Jira.
+- `uv run sdlc jira-sync --epic-key <key> [--no-dry-run]`: download a Jira epic's tree into `.data/corpus_jira/` (separate pipeline — see Architecture).
+- `uv run sdlc jira-kb-create [--no-dry-run]`: one-time setup of the Jira downloader's own Knowledge Base.
+- `uv run sdlc jira-aws-sync [--no-dry-run]`: upload `.data/corpus_jira/` to S3 and run ingestion against the Jira KB.
+- `uv run sdlc jira-search "<query>"`: Retrieve against the Jira KB.
 - `uv run pytest`: run the tests.
 
-## Decisions (Phase 0)
-- Python 3.13, uv, Typer CLI `sdlc`, Makefile.
-- No local RAG and no vision model: the Managed KB parser reads the diagrams in PDFs. Anchor diagrams are sent to Claude as images.
-- Managed KB with managed embedding. CloudFormation is used where it works; the KB and data source are created by a CLI step because of a reported CloudFormation schema issue. boto3 is allowed.
-- No official Confluence Cloud PDF API exists, so PDFs are rendered with WeasyPrint.
-- The Strands `retrieve` tool doesn't support Managed KBs, so we use our own tool.
-- Jira:
-  - issue types Epic/Story/Sub-task; statuses To Do/In Progress/Done
-  - transitions looked up by name
-  - components Engineering and Testing, with optional assignee IDs
-- Rollup:
-  - if any child is In Progress or Done, the parent moves to In Progress
-  - if all children are Done, the parent moves to Done
-  - optionally, a child reopening moves a Done parent back to In Progress, with a comment; if the workflow blocks that, it only comments
-- Design pages are resolved by page ID first, then label, then title pattern. A Confluence link on a step ticket overrides all of these.
-- Demo use case: "Order Fulfilment Performance". Graphviz is a dev-only dependency (lazily imported in `diagrams.py`, so it's never required outside `seed`).
-- Confluence attachment upload has no v2 endpoint; `ConfluenceClient.add_attachment` uses the v1 `POST /wiki/rest/api/content/{id}/child/attachment` (multipart, `X-Atlassian-Token: nocheck`).
-- Confluence sync scales to the enterprise space (~3000 docs) by design: `get_descendants` is metadata-only and `sync_tree` fetches full bodies only for new/changed pages, concurrently. Still open: verify the account's actual Confluence Cloud rate limits against the batch/worker sizes — see the docstrings in `src/sdlc/adapters/confluence.py` (`get_descendants`, `_PAGE_ID_BATCH`) and `src/sdlc/confluence_sync.py`.
-- WeasyPrint is a core dependency (not dev-only): both profiles need `aws-sync` for Knowledge Base ingestion. It turned out to need no system libraries on this machine (pure-Python rendering worked without `brew install pango`) — if that's not true elsewhere, document the system requirement where it's actually needed.
-- `aws_sync.py` gates PDF re-rendering on the Confluence page `version` already tracked by `confluence_sync` (not by re-rendering every page's PDF to hash-compare) — same scaling principle as the Confluence sync fix above.
-- IAM for the KB service role is defined directly in the CloudFormation template (`infra/aws/templates/storage.yaml`), not as separate `infra/aws/policies/*.json` files — CloudFormation is the single source of truth for it, since BRIEF.md's original CLI-only IAM approach was superseded by the Phase 0 decision to prefer CloudFormation.
-- `aws-deploy`/`aws-sync`/`aws-destroy` were tested dry-run against a real AWS account (list/describe calls only — no resources were created). boto3's SSO/"login" credential provider needed the `botocore[crt]` extra in this environment; added as a dependency since this is a real, not-invented, AWS SDK requirement.
-- Jira search moved to `/rest/api/3/search/jql` (the old `/rest/api/3/search` is fully removed); it can't `expand=changelog`, so `JiraClient.status_changes_since` uses the dedicated `GET /issue/{key}/changelog` endpoint instead, called only for issues a cheap `updated >=` search already flagged as changed.
-- **Not fully doc-verified this session** (the Atlassian docs pages kept truncating on fetch): the exact changelog response field names (`values`/`items`/`fromString`/`toString`) in `adapters/jira.py`. Used the long-standing, widely-documented Jira Cloud shape, flagged in the code — check it against a real response from your instance before relying on it.
-- **Confirmed by user**: the "AgenticSDLC" Jira project is team-managed, so `orchestrator._rollup`'s uniform `parent = <key>` JQL is correct as-is.
-- Strands Agents SDK (`strands-agents` on PyPI) for the real agent: `Agent(model=BedrockModel(...), tools=[...], system_prompt=...)`, our own `search_knowledge` `@tool` (not the built-in `retrieve` tool), and `agent.structured_output(PydanticModel, content_blocks)` for the plan — verified against strandsagents.com and the SDK's own search/PR history (the docs site 404'd on direct page fetches this session).
-- `engine.run_solution_requirements` takes an injectable `agent` param (anything with `.structured_output(Model, content) -> Model`) so tests exercise anchor-reading/prompt-building/plan-writing without a real Bedrock call; when omitted it builds the real Strands `Agent`.
-- `config.yaml`'s `aws.llm_model_id` is set to `apac.anthropic.claude-3-5-sonnet-20240620-v1:0` — the most capable of the two Claude cross-region inference profiles the user confirmed enabled on this account via `aws bedrock list-inference-profiles --region ap-southeast-2` (the other being `apac.anthropic.claude-3-sonnet-20240229-v1:0`). `ap-southeast-2` needs a cross-region profile, not a plain foundation-model id. Swap this for a newer `au.anthropic.*` Sonnet 4.5/Haiku 4.5 profile if one is enabled and preferred.
-- Traceability is now in all three places `orchestrator.apply_plan` was meant to write it: `plan.json`, `workflow/<use_case>/traceability.json`, and the Jira issue property `sdlc.trace` (`TicketSystem.set_property`, `PUT /rest/api/3/issue/{key}/properties/{propertyKey}`) — stamped directly on each created Story so the back-trace is readable from Jira itself without the ObjectStore.
-- Anchor resolution never auto-proceeds past an unconfigured `page_id`: if `page_roles.yaml` has no `page_id` for a role, `anchors.AnchorNotConfirmed` is raised (surfaced as a Jira comment, step stays blocked) even when a title-match candidate is found — per BRIEF.md, a human must set `page_id` to confirm it, not have the agent silently pick a page.
+## Gotchas / non-obvious constraints
+- **`claude-sonnet-5-5` breaks plan generation**: it rejects forced `tool_choice`, which the installed `strands-agents`' `AnthropicModel.structured_output()` hardcodes. Use `claude-sonnet-5` (the current default) until Strands or Anthropic fixes this — see `docs/DECISIONS.md` for the live-verified detail.
+- **Jira issue type names are per-instance**, not hardcoded — wired from `terminology.yaml`'s `issue_types` mapping. Check your own instance's real names (`GET /issue/createmeta`) before reusing this for a new use case; this instance's Sub-task type is named `"Subtask"` (no hyphen).
+- **KB metadata sidecars (`.metadata.json`) don't get scanned** on this account/region — confirmed live, `numberOfMetadataDocumentsScanned` stays 0 under every connectorParameters shape tried. `use_case` scoping is done client-side by matching the S3 key path instead (see `bedrock_kb.py`, `aws_sync._pdf_key`).
+- **Never run `agentcore destroy`**: it has a documented bug deleting externally-created IAM roles, which would delete our CloudFormation-managed AgentExecutionRole out from under CloudFormation ([toolkit#438](https://github.com/aws/bedrock-agentcore-starter-toolkit/issues/438)). `aws-destroy` calls `delete_agent_runtime` directly instead. Known gap: it doesn't clean up the ECR image/repo or CodeBuild project `agentcore launch` creates — clean those up manually.
+- **`wiring.py`'s `LocalAgentRuntime` import is lazy** (inside `agent_runtime()`, not module scope) so the scheduled Lambda's import chain never pulls in Strands/bs4/WeasyPrint/Graphviz — guarded by `tests/test_orchestrator_lambda.py`.
+- **Anchor resolution never auto-proceeds past an unconfigured `page_id`**: if `page_roles.yaml` has no `page_id` for a role, `anchors.AnchorNotConfirmed` is raised (surfaced as a Jira comment, step stays blocked) even when a title-match candidate is found — a human must set `page_id` to confirm it.
+- **Local-only Anthropic/Gemini stopgap** (`profile: local` only, via `ANALYST_LLM_PROVIDER=anthropic|gemini`): lets the analyst agent call those APIs directly instead of Bedrock while Bedrock Claude model access is pending. Billed to your own account, confirmed per call. Delete once Bedrock access lands — see `.env.example` and `docs/DECISIONS.md`.
+- **Fields not independently doc-verified against a real response this session** (pinned by mocked tests, but check against your own instance): the Jira changelog shape (`values`/`items`/`fromString`/`toString`) and the Jira attachment shape (`fields.attachment[]`) in `adapters/jira.py`.
+- **`agent_deploy.py`'s `agentcore configure`/`launch` calls haven't been run against real AWS**: written per the verified CLI/API shapes, but `_read_agent_runtime_arn`'s exact `.bedrock_agentcore.yaml` key is a best read of the docs, not confirmed against a real file. Check it the first time this actually runs.
 
-## Decisions (Phase 7 — AgentCore, scheduled orchestrator, destroy, Jira property)
-User confirmed these before any code was written, per BRIEF.md's own instruction to check AgentCore resources/steps first:
-- **AgentCore deploy**: the `agentcore` CLI toolkit (`agentcore configure -e <entrypoint> -er <role_arn>` + `agentcore launch`), not raw boto3 + manual ECR push. It builds+pushes the container and creates the Runtime; CloudFormation can't do either.
-- **Secrets**: Atlassian credentials are **plaintext environment variables** on the AgentCore Runtime / Lambda (`create_agent_runtime`'s `environmentVariables`), not Secrets Manager. Simpler, at the cost of being visible via the control-plane API — the user's explicit choice.
-- **Scheduler compute**: a Lambda on an EventBridge schedule, not always-on ECS/Fargate/EC2 — no standing cost, matches BRIEF.md's "same one-shot command on a schedule."
-- **IaC split**: CloudFormation (`infra/aws/templates/agent.yaml`) owns the AgentExecutionRole, the Lambda, and the EventBridge rule+target — same CFN-owns-IAM pattern as Phase 4's `storage.yaml`. The AgentCore Runtime resource itself is created by the `agentcore` CLI step (`src/sdlc/aws/agent_deploy.py`), which is handed the CFN-created role ARN via `-er` rather than letting the toolkit auto-create its own role.
-- **Lambda dependency footprint**: `wiring.py`'s `LocalAgentRuntime` import is lazy (inside `agent_runtime()`, not module scope) specifically so the Lambda's import chain never pulls in Strands/bs4/WeasyPrint/Graphviz — guarded by `tests/test_orchestrator_lambda.py`, which actually imports it in a subprocess and asserts none of those modules loaded.
-- **`aws-destroy` does not call `agentcore destroy`**: that CLI command has a documented bug ([aws/bedrock-agentcore-starter-toolkit#438](https://github.com/aws/bedrock-agentcore-starter-toolkit/issues/438)) deleting externally-created IAM roles — which would delete our CFN-managed AgentExecutionRole out from under CloudFormation. Instead `destroy.py` calls `delete_agent_runtime(agentRuntimeId=...)` directly (boto3 `bedrock-agentcore-control`). **Known gap**: this doesn't clean up the ECR images/repo or CodeBuild project `agentcore launch` creates — those currently need manual cleanup (`aws ecr delete-repository --force ...`) until that's wired in.
-- **Not run against real AWS this session** (would build+push a real container image and create billable resources without you present): `agent_deploy.py`'s `agentcore configure`/`launch` calls and `_read_agent_runtime_arn`'s parsing of `.bedrock_agentcore.yaml` — written per the verified CLI/API shapes, but the exact YAML key for the runtime ARN is my best read of the docs, not confirmed against a real file. Check it the first time this actually runs.
-- `aws-deploy` now runs `aws/deploy.py` (storage + KB) then `aws/agent_deploy.py` (agent infra), reloading config between them so the agent stack sees the KB id just written.
-
-## Decisions (Phase 8 — docs, mocked-call tests, cleanup)
-- README.md now has both quick starts (local and aws), since Phase 7 made `aws` fully wired end-to-end (S3ObjectStore, AgentCoreAgentRuntime, the Lambda).
-- Added mocked-call unit tests for the three adapters that talk to real services over HTTP/boto3 and had none yet: `JiraClient`, `ConfluenceClient` (`tests/_mock_http.py`'s `FakeSession`, no extra test dependency), and `S3ObjectStore` (`unittest.mock.patch("boto3.client")`). These pin the request/response shapes the docstrings document, including the ones flagged as not independently doc-verified.
-- Writing `ConfluenceClient`'s mocked tests surfaced two real bugs, now fixed: `create_page` and `append_to_page` both did a read (`_space_id()` / fetch-current-page) *before* checking `dry_run`, even though dry-run's own message never used the result — so dry-run calls to those two methods made a real network call. Both now check `dry_run` first.
-- Fixed a bug in the test helper itself while writing these: `FakeSession`'s first cut matched responses by substring-in-url, which is ambiguous when adapter URLs share long prefixes (e.g. `.../wiki/api/v2/pages` vs `.../wiki/api/v2/pages/1`); switched to suffix matching (`url.endswith(...)`), with longest-match as a tiebreaker.
-- Removed two genuinely unused imports (`Path` in `engine.py`, `field` in `tests/_mock_http.py`), found via a small one-off AST script rather than adding a linter dependency for a one-time pass.
-- Not added: a linter/formatter dependency (ruff etc.) — out of scope for "minimal code," and nothing in the brief asked for one.
-
-## Decisions (local-only Anthropic API stopgap)
-- While Bedrock Claude model access and AgentCore access are both still pending on the AWS
-  account, `engine._build_real_agent` can call the Anthropic or Gemini APIs directly instead
-  of Bedrock, for `profile: local` only: set `ANALYST_LLM_PROVIDER=anthropic` or `=gemini`
-  (unset, or any value when `profile: aws`, keeps the Bedrock path). The `aws` profile
-  (Lambda/AgentCore) never takes either branch regardless of the env var.
-  - `anthropic`: builds a Strands `AnthropicModel(client_args={"api_key": ...}, model_id=...)`
-    from `ANTHROPIC_API_KEY` (verified against the installed `strands-agents[anthropic]`
-    extra's `strands/models/anthropic.py`) instead of `BedrockModel`.
-  - `gemini`: builds a Strands `GeminiModel(client_args={"vertexai": True, "project": ...,
-    "location": ...}, model_id=...)` (verified against the installed `strands-agents[gemini]`
-    extra's `strands/models/gemini.py`), authenticating via Application Default Credentials —
-    run `gcloud auth application-default login` once in the terminal, then set
-    `GOOGLE_CLOUD_PROJECT` (required) and optionally `GOOGLE_CLOUD_LOCATION` (default
-    `us-central1`). No API key is used. `GEMINI_MODEL_ID` default `gemini-3.8-flash` is the
-    user's own pick, not independently doc-verified against ai.google.dev this session —
-    override it if that id is wrong/unavailable on your project.
-  - Both are billed to the user's own account (Anthropic key / GCP project), not AWS, so
-    `_build_local_llm_model` calls `typer.confirm(..., abort=True)` before constructing either
-    model, every time — the user confirmed they want to approve each call, not just once per
-    session.
-- `ANTHROPIC_MODEL_ID` env var selects the model, defaulting to `claude-sonnet-5` — chosen
-  over Haiku because this task (multi-section DDS/TDS synthesis with section/requirement-id
-  citations, feeding real Jira tickets) needs Sonnet-tier reasoning quality, matching the
-  Sonnet-class model already used on the Bedrock path.
-- **Not `claude-sonnet-5-5`**, despite it being the newer/cheaper Sonnet: verified live (a
-  real `messages.create` call, user-approved) that it rejects forced `tool_choice`
-  (`"tool_choice: type \"tool\" and \"any\" are not supported for this model."`), and the
-  installed `strands-agents` 1.58.1's `AnthropicModel.structured_output()` hardcodes
-  `tool_choice={"any": {}}` — so `claude-sonnet-5-5` breaks plan generation outright.
-  `claude-sonnet-5` has no such restriction (also verified live). Revisit the default once
-  Strands supports the newer structured-outputs API for this Claude generation, or ships an
-  `AnthropicModel` fix.
-- KB retrieval (`search_knowledge`) is unaffected: it's a separate Bedrock `Retrieve` call
-  against the existing Managed KB/S3 bucket, which only needs AWS credentials with Bedrock
-  Agent Runtime + S3 permissions — not Claude model access.
-- Treat this as a temporary workaround to delete once Bedrock Claude model access lands, not
-  a permanent second LLM provider path.
-
-## Decisions (sprint placement + status transitions)
-- **Confluence publishing of the solution requirements plan** (`engine._publish_plan_page`):
-  besides `plan.json`/`plan.md` in the `ObjectStore` (`.state/` for `local`, S3 for `aws`), the
-  full plan (not just the summary that goes in the Jira comment) is published as a Confluence
-  page titled `"<N>. Solution Requirements"` under the use case root — same numbering
-  convention as the other anchor pages (`N = len(non-root page_roles) + 1`) — and the step
-  ticket gets a `TicketSystem.add_remote_link` to it. `DocumentSource` is Confluence in both
-  profiles, so no profile-specific wiring was needed.
-- **Jira issue type names are per-instance, not hardcoded**: `orchestrator.py` used to pass
-  literal `"Epic"`/`"Story"`/`"Sub-task"` to `create_issue`, ignoring the `issue_types` mapping
-  already defined in `terminology.yaml` for exactly this. On this Jira Cloud site the real
-  Sub-task issue type is named `"Subtask"` (no hyphen) — confirmed via
-  `GET /issue/createmeta?projectKeys=SCRUM` — so the literal `"Sub-task"` 400'd on every
-  `create_issue` call. Fixed by wiring `issue_types` from `terminology.yaml` into all three
-  `create_issue` call sites (`workflow_start`'s Epic/Story, `apply_plan`'s Story/Sub-task), and
-  correcting this use case's `terminology.yaml` value. Check your own instance's real issue
-  type names the same way before reusing this for a new use case.
-- **New Stories go into the next unstarted sprint, not the backlog and not the active
-  sprint** — the user's explicit choice. `TicketSystem.get_or_create_future_sprint` /
-  `add_issues_to_sprint` (new port methods) use the separate Jira Software "Agile" REST root
-  (`/rest/agile/1.0`, not `/rest/api/3`) — verified live against a real Jira Cloud site (Oct
-  2026): `GET /board?projectKeyOrId=...` for the board, `GET /board/{id}/sprint?state=future`
-  for a not-yet-started sprint (created via `POST /sprint {name, originBoardId}` if none
-  exists), `POST /sprint/{id}/issue {"issues": [...]}` to move issues out of the backlog. Wired
-  into both `workflow_start` (step Stories) and `apply_plan` (requirement Stories) — only the
-  newly-created keys each call, not ones found via the idempotency marker.
-- **`apply_plan` never jumps straight To Do -> Done** — the user's explicit choice, since the
-  normal orchestrator-driven flow already passes through In Progress (`_start_step` does that
-  before the agent runs) and a manually-triggered `apply_plan`/`analyst-apply` should look the
-  same in the issue's history. It now checks the issue's current status and inserts a
-  To Do -> In Progress transition first if needed, wrapped in the same `TransitionNotAvailable`
-  fallback-to-comment pattern `_start_step`/`_rollup` already use.
-
-## Decisions (Jira downloader — separate pipeline, explicit-trigger only)
-- **Fully separate from the existing workflow**, per the user's explicit requirement: its own
-  Knowledge Base (`aws.jira_knowledge_base_id`/`jira_data_source_id`, created by the new
-  standalone `jira-kb-create` command, reusing the storage stack's bucket + KB service role —
-  no new CloudFormation), its own S3 prefix (`aws.jira_docs_prefix`), and its own CLI commands
-  (`jira-sync`, `jira-aws-sync`, `jira-search`). None of these are called by `workflow start`,
-  `sync-progress`/`watch-progress`, `aws-deploy`, `aws-sync`, or any `orchestrator.py` code
-  path — confirmed by grep, no references exist outside `cli.py` and the new modules
-  themselves.
-- **Markdown, not PDF**, for `issue.md`: Bedrock's S3 data source ingests `.md` directly
-  (verified live, Oct 2026), and unlike Confluence pages, Jira issues have no embedded-diagram
-  requirement forcing an HTML->PDF render step — attachments are uploaded as their own
-  separate S3 objects regardless. No WeasyPrint dependency on this path.
-- **Local corpus mirrors Jira's real hierarchy**, per the user's requirement: scope is
-  `--epic-key` (required, no auto-derivation, no interactive prompt) -> its Stories (`parent =
-  <epicKey>`) -> each Story's Sub-tasks (`parent = <storyKey>`), using the real `parent` links
-  `workflow_start`/`apply_plan` already set. Layout:
-  `.data/corpus_jira/<epicKey>/[<storyKey>/[<subtaskKey>/]]` with `issue.md` and a per-ticket
-  `_attachments/<file>` subfolder (same convention as Confluence's corpus) in each ticket's
-  own directory.
-- **`meta.json` is one file per epic tree, not one per ticket** — the user's explicit
-  correction after the first pass wrote one per ticket. It lives only at the epic root
-  (`.data/corpus_jira/<epicKey>/meta.json`) as `{"epicKey": ..., "issues": {issueKey: {
-  issueType, status, updated, summary, attachments, path}}}`, where `path` is the ticket's
-  directory relative to the epic root (`"."` for the epic itself, `"<story>"`, `"<story>/
-  <subtask>"`). `jira_sync.sync_issues` rebuilds it every run by merging the previous file
-  (kept for tickets that were unchanged or still failing) with this run's freshly-fetched
-  tickets, so a partial run never drops an entry it didn't need to touch. `jira_aws_sync.py`
-  walks each epic's single `meta.json` to find every ticket's directory via its `path`, rather
-  than globbing for per-ticket `meta.json` files.
-- **Attachment handling**: Bedrock's S3 data source natively ingests `.txt/.md/.html/
-  .doc/.docx/.csv/.xls/.xlsx/.pdf` and (via multimodal parsing) `.jpeg/.jpg/.png` — verified
-  live, Oct 2026 — with size limits of 3.75MB for images and 50MB for everything else. An
-  attachment outside that extension set or over its size limit, or one that errors on
-  download, is never written to disk; instead it's logged (`print("[error] ...")`) and noted
-  in `issue.md`'s own text (`> Attachment not downloaded: <file> (<reason>)`) plus `meta.json`
-  (`status: "skipped_unsupported_type" | "skipped_too_large" | "failed_download"`) — so its
-  existence is still discoverable even though it's never ingested. The user's explicit choice
-  over building a format-conversion pipeline (e.g. LibreOffice for pptx->pdf).
-- **Download trace + retry, for both Jira and Confluence** — the user's explicit requirement.
-  `jira_sync.py` keeps `jira_trace.json` (ObjectStore, keyed by issue key:
-  `status/error/last_attempt/last_success_updated`); an issue is re-fetched when new, its
-  `updated` changed since the last successful fetch, or its last recorded status was
-  `"failed"`. The same gap existed in `confluence_sync.py` — it had no success/failure record
-  at all, and `list(pool.map(...))` meant the *first* page's exception aborted the entire
-  batch with no partial progress — so the identical trace/retry pattern (`confluence_trace.json`,
-  per-page try/except instead of letting `pool.map` propagate) was added there too.
-- **`jira-aws-sync` has its own upload trace** (`jira_upload_trace.json`), separate from
-  `jira_sync.py`'s download trace: an S3 upload can fail for reasons unrelated to the Jira
-  download (e.g. a transient S3 error), so it needs independent retry bookkeeping, gated on
-  whether the last successful upload's `uploaded_updated` matches the download trace's current
-  `last_success_updated` for that issue.
-- **Traceability back to Jira**: `Chunk.s3_uri`/`location.s3Location.uri` is reliable (unlike
-  the `.metadata.json` sidecar, confirmed non-functional in this account per `bedrock_kb.py`'s
-  own docstring). The issue key is encoded directly in the S3 key path
-  (`.../jira/<epicKey>/[.../<storyKey>/[.../<subtaskKey>/]]...`), and `jira_citations.
-  jira_url_from_s3_uri` turns a hit's `s3_uri` back into a `<base_url>/browse/<key>` link —
-  used by the new `jira-search` CLI command. Per-attachment upload (rather than embedding into
-  one PDF) is a deliberate precision gain: a KB hit on an attachment resolves to exactly that
-  file and its issue, not just "somewhere in this issue."
-- **Not wired into the analyst agent's `search_knowledge` tool** this round — `jira-search` is
-  a separate, manual CLI command for proving the Jira KB out first. Wiring a second
-  `KnowledgeIndex` into the analyst's tool set is a deliberate follow-up, not done here.
-- **jira.py's attachment shape (`fields.attachment[]`: id/filename/mimeType/size/content) is
-  not independently doc-verified this session** — same caveat as the existing changelog shape
-  — it's the long-standing documented Jira Cloud shape, pinned by mocked tests, but check it
-  against a real response from your instance before relying on it.
+See `docs/DECISIONS.md` for the full dated reasoning behind every decision above, plus everything else decided along the way (sprint placement, traceability, the Jira downloader's design, etc.).

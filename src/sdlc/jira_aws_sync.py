@@ -3,7 +3,7 @@ S3, under its own prefix and its own Managed Knowledge Base — entirely separat
 the Confluence pipeline's bucket prefix/KB/ingestion. Dry-run by default. Never
 called by `aws-sync`, `workflow start`, `sync-progress`/`watch-progress`, or any
 orchestrator path: this pipeline is explicit-trigger-only, by the user's own
-decision (see CLAUDE.md "Jira downloader").
+decision (see docs/DECISIONS.md "Jira downloader").
 
 issue.md is uploaded as-is (Bedrock's S3 data source ingests .md directly — see
 jira_sync.py's module docstring for why no PDF render step is needed). Each file
@@ -27,9 +27,9 @@ from pathlib import Path
 
 import boto3
 
-from sdlc.adapters.local_store import LocalObjectStore
-from sdlc.aws_sync import _poll_ingestion_job
+from sdlc.aws_sync import run_ingestion
 from sdlc.jira_sync import TRACE_KEY as DOWNLOAD_TRACE_KEY
+from sdlc.wiring import object_store
 
 UPLOAD_TRACE_KEY = "jira_upload_trace.json"
 
@@ -60,7 +60,7 @@ def jira_aws_sync(cfg: dict, *, dry_run: bool = True) -> JiraAwsSyncResult:
     aws, data_dir = cfg["aws"], Path(cfg["data_dir"])
     region, bucket = aws["region"], aws["bucket"]
     jira_docs_prefix, use_case = aws["jira_docs_prefix"], cfg["use_case"]
-    store = LocalObjectStore(cfg["state_dir"])
+    store = object_store(cfg)
     download_trace = store.get_json(DOWNLOAD_TRACE_KEY) or {}
     upload_trace = store.get_json(UPLOAD_TRACE_KEY) or {}
     s3 = boto3.client("s3", region_name=region)
@@ -130,17 +130,8 @@ def jira_aws_sync(cfg: dict, *, dry_run: bool = True) -> JiraAwsSyncResult:
         print("nothing changed since the last jira-aws-sync; skipping ingestion")
         return result
 
-    if dry_run:
-        print("[dry-run] would start-ingestion-job (Jira data source) and poll until COMPLETE")
-        return result
-
-    bedrock_agent = boto3.client("bedrock-agent", region_name=region)
-    job = bedrock_agent.start_ingestion_job(
-        knowledgeBaseId=aws["jira_knowledge_base_id"], dataSourceId=aws["jira_data_source_id"],
-    )["ingestionJob"]
-    result.ingestion_job_id = job["ingestionJobId"]
-    result.ingestion_status = _poll_ingestion_job(
-        bedrock_agent, knowledge_base_id=aws["jira_knowledge_base_id"],
-        data_source_id=aws["jira_data_source_id"], ingestion_job_id=job["ingestionJobId"],
+    result.ingestion_job_id, result.ingestion_status = run_ingestion(
+        region=region, knowledge_base_id=aws["jira_knowledge_base_id"],
+        data_source_id=aws["jira_data_source_id"], dry_run=dry_run,
     )
     return result

@@ -15,9 +15,10 @@ where the agent/orchestrator run:
 | Analyst agent runs on | your laptop | AgentCore Runtime |
 | Orchestrator runs via | `sync-progress` / `watch-progress` | a scheduled Lambda |
 
-See [`CLAUDE.md`](CLAUDE.md) for the architecture, every command, and the decisions
-made along the way (with what's verified against official docs vs. what still needs
-your confirmation). [`docs/BRIEF.md`](docs/BRIEF.md) is the original project brief.
+See [`CLAUDE.md`](CLAUDE.md) for the architecture and every command.
+[`docs/DECISIONS.md`](docs/DECISIONS.md) has the full dated decision log (what's
+verified against official docs vs. what still needs your confirmation).
+[`docs/BRIEF.md`](docs/BRIEF.md) is the original project brief.
 
 This is a public, generic codebase: no employer names, domains or real data anywhere.
 Your own enterprise use case goes in a sibling `usecases/<name>/` folder (gitignored
@@ -46,7 +47,7 @@ cp .env.example .env   # fill in your Atlassian base URL, email, API token
 In Confluence, create a space (e.g. `DEMO`); in Jira, create a **team-managed**
 project with Epic/Story/Sub-task and To Do/In Progress/Done (matches
 `usecases/demo_order_fulfilment/terminology.yaml` — if your statuses or hierarchy
-differ, see CLAUDE.md's rollup section). Put the space key and project key in `.env`:
+differ, see docs/DECISIONS.md's Phase 0 rollup rules). Put the space key and project key in `.env`:
 
 ```bash
 SDLC__CONFLUENCE__SPACE_KEY=DEMO
@@ -86,7 +87,7 @@ uv run sdlc aws-sync --no-dry-run   # renders PDFs, uploads to S3, runs KB inges
 uv run sdlc search "on-time delivery"
 
 # 4. Start the workflow: one epic + step tickets under it
-uv run sdlc workflow start --use-case demo_order_fulfilment --no-dry-run
+uv run sdlc workflow start --use-case demo_order_fulfilment --apply
 #    ...work the manual steps in Jira (attach artifacts, mark Done)...
 
 # 5. Poll Jira for progress: rollup, step readiness, running the analyst agent
@@ -181,5 +182,6 @@ config/workflow.yaml  the lifecycle step registry
 usecases/<name>/      per-use-case terminology, page roles, seed templates
 infra/aws/templates/  CloudFormation (storage.yaml, agent.yaml)
 docs/BRIEF.md         the original project brief
-CLAUDE.md             architecture, every command, and the decisions made
+docs/DECISIONS.md     the full dated decision log
+CLAUDE.md             architecture and every command
 ```

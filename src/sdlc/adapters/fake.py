@@ -268,4 +268,4 @@ class FakeAgentRuntime:
 
     def run(self, task_id: str, context: dict) -> dict:
         self.calls.append((task_id, context))
-        return {"status": "ok", "task_id": task_id}
+        return {"status": "planned", "task_id": task_id}
