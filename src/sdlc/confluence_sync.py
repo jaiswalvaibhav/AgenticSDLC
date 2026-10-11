@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sdlc.adapters.confluence import slugify
+from sdlc.kb_files import check_attachment
 from sdlc.ports import DocumentSource, ObjectStore, Page
 
 MANIFEST_KEY = "manifest.json"
@@ -126,17 +127,23 @@ def _fetch_and_write(doc_source: DocumentSource, to_fetch: list[tuple[Page, Path
             (page_dir / "page.html").write_text(full.html)
 
             attachments_dir = page_dir / "_attachments"
-            attachment_names = []
+            attachment_names, attachment_notes = [], []
             for attachment in doc_source.get_attachments(meta.page_id):
-                attachments_dir.mkdir(parents=True, exist_ok=True)
-                data = doc_source.download_attachment(attachment)
-                (attachments_dir / attachment.title).write_bytes(data)
-                attachment_names.append(attachment.title)
+                status, reason = check_attachment(attachment.file_size, attachment.title)
+                if status == "downloaded":
+                    attachments_dir.mkdir(parents=True, exist_ok=True)
+                    data = doc_source.download_attachment(attachment)
+                    (attachments_dir / attachment.title).write_bytes(data)
+                    attachment_names.append(attachment.title)
+                else:  # never written to disk, but its name stays discoverable
+                    print(f"[skip] attachment {attachment.title!r} on page {meta.page_id}: {reason}")
+                    attachment_notes.append({"filename": attachment.title, "status": status, "reason": reason})
 
             (page_dir / "meta.json").write_text(json.dumps({
                 "pageId": full.page_id, "spaceKey": full.space_key, "title": meta.title,
                 "parentPath": meta.parent_path, "url": full.url, "version": meta.version,
                 "attachments": attachment_names,  # lets pdf.py resolve <img> src locally
+                "skippedAttachments": attachment_notes,  # names kept even though not downloaded
             }, indent=2))
             return meta.page_id, True, None
         except Exception as exc:  # noqa: BLE001 -- isolate per-page; see module docstring

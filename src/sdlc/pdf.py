@@ -9,7 +9,9 @@ Needs the `weasyprint` package AND its system libraries (Pango, Cairo, GDK-Pixbu
 anything that imports it, doesn't require those system libraries unless a PDF is
 actually rendered.
 """
+import json
 import re
+from html import escape
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -33,4 +35,12 @@ def render_page_pdf(page_dir: str | Path) -> bytes:
         return f"{prefix}{local_path.as_uri()}{suffix}"
 
     html = _IMG_SRC_RE.sub(_rewrite, html)
+    # Name every attachment that wasn't downloaded (unsupported type / too large), so a
+    # search hit still surfaces its filename.
+    meta_path = page_dir / "meta.json"
+    skipped = json.loads(meta_path.read_text()).get("skippedAttachments", []) if meta_path.exists() else []
+    if skipped:
+        items = "".join(f"<li>Attachment not downloaded: {escape(a['filename'])} ({escape(a['reason'])})</li>"
+                        for a in skipped)
+        html += f"<h2>Attachments</h2><ul>{items}</ul>"
     return weasyprint.HTML(string=html, base_url=str(page_dir)).write_pdf()

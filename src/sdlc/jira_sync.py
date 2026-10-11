@@ -49,19 +49,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sdlc.kb_files import check_attachment
 from sdlc.ports import Issue, ObjectStore, TicketSystem
 
 TRACE_KEY = "jira_trace.json"
 META_FILENAME = "meta.json"
 FETCH_WORKERS = 8
-
-# Bedrock S3 data source support + size limits (verified live, Oct 2026): images are
-# capped tighter than every other supported format.
-_IMAGE_EXTENSIONS = {".jpeg", ".jpg", ".png"}
-_SUPPORTED_EXTENSIONS = _IMAGE_EXTENSIONS | {".txt", ".md", ".html", ".doc", ".docx",
-                                              ".csv", ".xls", ".xlsx", ".pdf"}
-_IMAGE_SIZE_LIMIT = int(3.75 * 1024 * 1024)
-_OTHER_SIZE_LIMIT = 50 * 1024 * 1024
 
 
 @dataclass
@@ -154,15 +147,6 @@ def sync_issues(tickets: TicketSystem, store: ObjectStore, *, epic_key: str, bas
     return result
 
 
-def _check_attachment(file_size: int, ext: str) -> tuple[str, str | None]:
-    if ext not in _SUPPORTED_EXTENSIONS:
-        return "skipped_unsupported_type", f"{ext or 'no extension'} isn't ingestible by the Knowledge Base"
-    limit = _IMAGE_SIZE_LIMIT if ext in _IMAGE_EXTENSIONS else _OTHER_SIZE_LIMIT
-    if file_size > limit:
-        return "skipped_too_large", f"{file_size} bytes exceeds the {limit}-byte limit"
-    return "downloaded", None
-
-
 def _write_ticket(tickets: TicketSystem, issue: Issue, ticket_dir: Path, base_url: str) -> list[dict]:
     ticket_dir.mkdir(parents=True, exist_ok=True)
     attachments_dir = ticket_dir / "_attachments"
@@ -170,8 +154,7 @@ def _write_ticket(tickets: TicketSystem, issue: Issue, ticket_dir: Path, base_ur
     attachment_meta = []
     notes: list[str] = []
     for attachment in issue.attachments:
-        ext = Path(attachment.title).suffix.lower()
-        status, reason = _check_attachment(attachment.file_size, ext)
+        status, reason = check_attachment(attachment.file_size, attachment.title)
         if status == "downloaded":
             try:
                 data = tickets.download_attachment(attachment)

@@ -145,3 +145,23 @@ def test_previously_failed_page_is_retried_even_if_version_unchanged(tmp_path: P
     second = sync_tree(doc, store, root_page_id="1", data_dir=tmp_path, dry_run=False)
     assert "2" in second.updated
     assert store.get_json(TRACE_KEY)["2"]["status"] == "success"
+
+
+def test_unsupported_attachment_is_skipped_but_its_name_is_recorded(tmp_path: Path):
+    import json
+    doc = FakeDocumentSource()
+    _seed_tree(doc)
+    doc.attachments["2"].append(Attachment(attachment_id="a2", title="archive.zip",
+                                            media_type="application/zip", download_url="fake://a2", file_size=10))
+    doc.attachment_bytes["a2"] = b"ZIP"
+    store = FakeObjectStore()
+
+    sync_tree(doc, store, root_page_id="1", data_dir=tmp_path, dry_run=False)
+
+    dds_dir = tmp_path / "corpus" / "FAKE" / "Order Fulfilment" / "data-design-solution__2"
+    assert not (dds_dir / "_attachments" / "archive.zip").exists()
+    assert (dds_dir / "_attachments" / "diagram.png").exists()
+    meta = json.loads((dds_dir / "meta.json").read_text())
+    assert meta["attachments"] == ["diagram.png"]
+    assert meta["skippedAttachments"][0]["filename"] == "archive.zip"
+    assert meta["skippedAttachments"][0]["status"] == "skipped_unsupported_type"

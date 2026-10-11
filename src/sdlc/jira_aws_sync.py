@@ -28,6 +28,7 @@ from pathlib import Path
 import boto3
 
 from sdlc.aws_sync import run_ingestion
+from sdlc.kb_files import check_attachment
 from sdlc.jira_sync import TRACE_KEY as DOWNLOAD_TRACE_KEY
 from sdlc.wiring import object_store
 
@@ -52,7 +53,9 @@ def _ticket_files(ticket_dir: Path) -> list[Path]:
     files = [ticket_dir / "issue.md"]
     attachments_dir = ticket_dir / "_attachments"
     if attachments_dir.exists():
-        files += sorted(p for p in attachments_dir.iterdir() if p.is_file())
+        # Re-check here too: a stale file left over from an earlier run must never reach the KB.
+        files += sorted(p for p in attachments_dir.iterdir()
+                        if p.is_file() and check_attachment(p.stat().st_size, p.name)[0] == "downloaded")
     return files
 
 
