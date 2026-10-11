@@ -314,13 +314,16 @@ def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use
 # ------------------------------------------------------------- workflow start --
 def workflow_start(*, tickets: TicketSystem, store: ObjectStore, registry: WorkflowRegistry,
                     cfg: dict, use_case: str, from_step: str | None = None,
-                    steps: list[str] | None = None, dry_run: bool = True) -> dict:
+                    steps: list[str] | None = None, targets: list[str] | None = None,
+                    dry_run: bool = True) -> dict:
     """Creates one epic per use case (if it doesn't already exist) plus one Story per
     selected/artifact-only step, links dependencies with 'Blocks', and persists the
     step_id -> issue_key map. Idempotent: every issue is found by a stable label before
-    being created, so re-running never duplicates."""
+    being created, so re-running never duplicates. `targets` (the UI's mode) selects
+    exactly those steps plus their direct inputs, instead of from_step/steps."""
     usecase_yaml = yaml.safe_load((Path("usecases") / use_case / "usecase.yaml").read_text())
-    selection = registry.resolve_selection(from_step=from_step, steps=steps)
+    selection = (registry.resolve_targets(targets) if targets
+                 else registry.resolve_selection(from_step=from_step, steps=steps))
 
     issue_types = load_terminology(use_case)["issue_types"]
     epic_marker = f"sdlc-epic:{use_case}"

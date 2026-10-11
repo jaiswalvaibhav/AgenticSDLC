@@ -144,6 +144,20 @@ class WorkflowRegistry:
                         avail.add(s.id)
                         changed = True
 
+        return self._selection(selected)
+
+    def resolve_targets(self, targets: list[str]) -> "Selection":
+        """The UI's selection mode: exactly the ticked steps, plus each one's direct inputs
+        as artifact-only (to be provided, not generated). Nothing downstream is added, and
+        a direct input that was itself ticked stays a selected step."""
+        if not targets:
+            raise WorkflowError("no steps selected")
+        for step_id in targets:
+            if step_id not in self:
+                raise WorkflowError(f"unknown step: {step_id}")
+        return self._selection(set(targets))
+
+    def _selection(self, selected: set[str]) -> "Selection":
         artifact_only = {
             dep
             for step_id in selected

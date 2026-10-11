@@ -308,6 +308,21 @@ def test_workflow_start_is_idempotent(tickets, store, cfg):
     assert len(epic_issues) == 1
 
 
+def test_workflow_start_with_targets_creates_only_targets_and_direct_inputs(tickets, store, cfg):
+    registry = WorkflowRegistry.load()
+    steps_map = orchestrator.workflow_start(tickets=tickets, store=store, registry=registry, cfg=cfg,
+                                             use_case=UC, targets=["develop_solution_requirements"],
+                                             dry_run=False)
+
+    assert set(steps_map) == {"develop_solution_requirements", "data_design_solution",
+                               "technical_design_solution"}
+    assert len(tickets.issues) == 3 + 1  # + the epic
+    # the DDS/TDS -> plan "Blocks" links are still created
+    assert {(a, b) for a, b, _ in tickets.links} == {
+        (steps_map["data_design_solution"], steps_map["develop_solution_requirements"]),
+        (steps_map["technical_design_solution"], steps_map["develop_solution_requirements"])}
+
+
 def test_workflow_start_places_new_step_stories_in_future_sprint(tickets, store, cfg):
     registry = WorkflowRegistry.load()
     steps_map = orchestrator.workflow_start(tickets=tickets, store=store, registry=registry, cfg=cfg,

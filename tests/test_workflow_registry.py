@@ -57,6 +57,40 @@ def test_optional_step_is_selected_only_when_explicit():
     assert {s.id for s in registry.resolve_selection(from_step="a", steps=["b"]).selected} == {"a", "b"}
 
 
+def test_targets_select_exactly_the_ticked_steps_plus_direct_inputs():
+    registry = WorkflowRegistry.load()
+    selection = registry.resolve_targets(["develop_solution_requirements"])
+    assert [s.id for s in selection.selected] == ["develop_solution_requirements"]
+    # direct inputs only — not their own ancestors, and nothing downstream
+    assert {s.id for s in selection.artifact_only} == {"data_design_solution", "technical_design_solution"}
+
+
+def test_targets_ticked_input_is_selected_not_artifact_only():
+    registry = WorkflowRegistry.load()
+    selection = registry.resolve_targets(["develop_solution_requirements", "technical_design_solution"])
+    assert {s.id for s in selection.selected} == {"develop_solution_requirements", "technical_design_solution"}
+    artifact_only = {s.id for s in selection.artifact_only}
+    assert "technical_design_solution" not in artifact_only
+    # the ticked TDS contributes its own direct inputs
+    assert {"data_design_solution", "stakeholder_requirements", "scope", "conceptual_data_model",
+            "solution_architecture"} == artifact_only
+
+
+def test_targets_are_returned_in_workflow_order():
+    registry = WorkflowRegistry.load()
+    selection = registry.resolve_targets(["test_solution_report", "data_contract"])
+    ids = [s.id for s in selection.selected]
+    assert ids.index("data_contract") < ids.index("test_solution_report")
+
+
+def test_targets_empty_or_unknown_raises():
+    registry = WorkflowRegistry.load()
+    with pytest.raises(WorkflowError, match="no steps selected"):
+        registry.resolve_targets([])
+    with pytest.raises(WorkflowError, match="unknown step"):
+        registry.resolve_targets(["nope"])
+
+
 def test_unknown_step_raises():
     registry = WorkflowRegistry.load()
     with pytest.raises(WorkflowError):
