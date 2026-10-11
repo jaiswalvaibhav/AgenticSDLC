@@ -83,9 +83,16 @@ class ConfluenceClient:
         """Titles of every ancestor, root-first, joined with '/' (no page IDs). Live,
         one-off lookup for a single arbitrary page (e.g. resolving an anchor page in
         Phase 6) — NOT used by get_descendants, which builds paths in-memory instead
-        to avoid an API call per page. See docs/DECISIONS.md, Phase 0, "Confluence sync scales to the enterprise space"."""
+        to avoid an API call per page. See docs/DECISIONS.md, Phase 0, "Confluence sync scales to the enterprise space".
+        Ancesttors the token can't view (e.r. a draft) are skipped rather than raised - 
+        confirmed live, Oct 2026"""
         ancestors = self._get(f"/pages/{page_id}/ancestors").get("results", [])
-        titles = [self._get(f"/pages/{a['id']}")["title"] for a in ancestors]
+        titles = []
+        for a in ancestors:
+            try:
+                titles.append(self._get(f"/pages/{a['id']}")["title"])
+            except requests.HTTPError:
+                continue  # skip ancestors the token can't view (e.g. a draft) rather than raising
         return "/".join([self.space_key, *titles])
 
     def _fetch_versions(self, page_ids: list[str]) -> dict[str, int]:
@@ -149,11 +156,15 @@ class ConfluenceClient:
 
     def _path_from_nodes(self, nodes: dict, page_id: str) -> str:
         """Walks the parentId chain already in `nodes` (built from one /descendants
-        call) — no extra API calls, unlike `_ancestor_path`."""
+        call) — no extra API calls, unlike `_ancestor_path`. Each ancestor segment is
+        slig_id, matching _page_dir's own leaf naming, so a page's content and its
+        subpages live in the same directory tree. Stops early if a parentId isn't in
+        `nodes` (e.g. an inaccessible/draft ancestor that /descendants silently
+        excludes - confirmeed live, Oct 2026)."""
         titles: list[str] = []
         node_id = nodes[page_id]["parentId"]
-        while node_id:
-            titles.insert(0, nodes[node_id]["title"])
+        while node_id and node_id in nodes:
+            titles.insert(0, f"{slugify(nodes[node_id]['title'])}__{node_id}")
             node_id = nodes[node_id]["parentId"]
         return "/".join([self.space_key, *titles])
 

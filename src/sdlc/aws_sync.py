@@ -6,12 +6,14 @@ Verified against the Bedrock KB docs (Oct 2026): StartIngestionJob(knowledgeBase
 dataSourceId) -> ingestionJobId; GetIngestionJob(...) -> status, COMPLETE when done.
 """
 import hashlib
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import boto3
 
+from sdlc.adapters.confluence import slugify
 from sdlc.pdf import render_page_pdf
 from sdlc.wiring import object_store
 
@@ -27,7 +29,7 @@ class AwsSyncResult:
     ingestion_status: str | None = None
 
 
-def _pdf_key(docs_prefix: str, use_case: str, page_id: str) -> str:
+def _pdf_key(docs_prefix: str, use_case: str, page_id: str, title: str) -> str:
     # use_case is in the key path (not just KB metadata) because the Managed KB's S3
     # connector metadata sidecars (.metadata.json) don't currently get scanned/applied
     # by this account's region (confirmed live: numberOfMetadataDocumentsScanned stays 0
@@ -35,7 +37,9 @@ def _pdf_key(docs_prefix: str, use_case: str, page_id: str) -> str:
     # path segment via the retrieved chunk's _source_uri instead of a metadata filter.
     # No space segment: page_id is already globally unique across a Confluence site, and
     # nothing reads the space segment back out of the key.
-    return f"{docs_prefix}{use_case}/{page_id}.pdf"
+    # pageId leads so a rename never changes the object's sort position or breaks the
+    # orphan-key cleanup below (entry["s3_key"] is simply overwritten on next render).
+    return f"{docs_prefix}{use_case}/{page_id}_{slugify(title)}.pdf"
 
 
 def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
@@ -55,13 +59,14 @@ def aws_sync(cfg: dict, *, dry_run: bool = True) -> AwsSyncResult:
         if entry.get("rendered_version") == entry["version"]:
             continue
         page_dir = data_dir / "corpus" / entry["path"]
+        title = json.loads((page_dir / "meta.json").read_text())["title"]
         pdf_bytes = render_page_pdf(page_dir)
         pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
         # No .metadata.json sidecar upload: this account's region never scans/applies
         # it (see _pdf_key's docstring above) — use_case scoping is done via the S3
         # key path instead, read back out client-side in bedrock_kb.py's search().
-        key = _pdf_key(docs_prefix, use_case, page_id)
+        key = _pdf_key(docs_prefix, use_case, page_id, title)
         if dry_run:
             print(f"[dry-run] would upload s3://{bucket}/{key} ({len(pdf_bytes)} bytes)")
         else:

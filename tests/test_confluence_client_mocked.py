@@ -98,7 +98,7 @@ def test_get_descendants_is_metadata_only_no_body_fetched():
 
     by_id = {p.page_id: p for p in pages}
     assert by_id["1"].version == 5 and by_id["1"].html == ""
-    assert by_id["2"].parent_path == "DEMO/Root"
+    assert by_id["2"].parent_path == "DEMO/root__1"
     assert by_id["3"].version == 2
     # no GET to /pages/2 or /pages/3 individually (no body fetch)
     fetched_urls = [url for _, url, _ in client._session.calls]

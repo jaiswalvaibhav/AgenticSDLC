@@ -167,3 +167,12 @@ def _move(src: Path, dest: Path, *, dry_run: bool) -> None:
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dest))
+    _prune_empty_ancestors(src.parent)
+
+
+def _prune_empty_ancestors(directory: Path) -> None:
+    """Removes a moved-out page's now-empty parent dirs, up to (not including) corpus/."""
+    while directory.name not in ("", "corpus") and directory.exists() and not any(directory.iterdir()):
+        parent = directory.parent
+        directory.rmdir()
+        directory = parent
