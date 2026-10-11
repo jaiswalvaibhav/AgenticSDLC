@@ -69,3 +69,26 @@ def test_unknown_provider_raises(monkeypatch, cfg):
     monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "openai")
     with pytest.raises(ValueError, match="Unknown EXTERNAL_LLM_PROVIDER"):
         _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
+
+
+def _confirm_spy(monkeypatch):
+    calls = []
+    monkeypatch.setattr("typer.confirm", lambda *a, **k: calls.append(a) or True)
+    return calls
+
+
+@pytest.mark.parametrize("provider,env", [
+    ("anthropic", {"ANTHROPIC_API_KEY": "sk-test"}),
+    ("gemini", {"GOOGLE_CLOUD_PROJECT": "my-gcp-project"}),
+])
+def test_external_provider_prompts_unless_confirmed_at_trigger(monkeypatch, cfg, provider, env):
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", provider)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    calls = _confirm_spy(monkeypatch)
+
+    _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
+    assert len(calls) == 1  # the CLI path (no flag) still confirms every call
+
+    _build_real_agent(knowledge_index=None, use_case="uc", cfg={**cfg, "external_llm_confirmed": True})
+    assert len(calls) == 1  # the UI path, confirmed once at trigger, doesn't prompt again

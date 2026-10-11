@@ -49,11 +49,13 @@ SYSTEM_PROMPT = (
 )
 
 
-def _build_local_llm_model(provider: str):
+def _build_local_llm_model(provider: str, confirmed: bool = False):
     """Build the Strands model for one of the local-only, non-Bedrock stopgap providers.
 
     Both are billed to the user's own account rather than AWS, so both confirm before
     every call — see docs/DECISIONS.md "Decisions (local-only Anthropic API stopgap)".
+    `confirmed` skips the terminal prompt for callers with no terminal (the workflow UI's
+    background poller), which collect the user's consent once at trigger instead.
     """
     import os
 
@@ -66,11 +68,12 @@ def _build_local_llm_model(provider: str):
         # 1.58.1. claude-sonnet-5 has no such restriction. Revisit once Strands supports
         # the newer structured-outputs API for this model family.
         model_id = os.environ.get("ANTHROPIC_MODEL_ID", "claude-sonnet-5")
-        typer.confirm(
-            f"About to call the Anthropic API directly (model={model_id}), billed to "
-            "your ANTHROPIC_API_KEY, not AWS Bedrock. Continue?",
-            abort=True,
-        )
+        if not confirmed:
+            typer.confirm(
+                f"About to call the Anthropic API directly (model={model_id}), billed to "
+                "your ANTHROPIC_API_KEY, not AWS Bedrock. Continue?",
+                abort=True,
+            )
         from strands.models.anthropic import AnthropicModel
 
         return AnthropicModel(client_args={"api_key": anthropic_key}, model_id=model_id, max_tokens=128000)
@@ -82,13 +85,14 @@ def _build_local_llm_model(provider: str):
         # doc-verified against ai.google.dev/gemini-api/docs/models this session) —
         # override with GEMINI_MODEL_ID if it's wrong/unavailable on your project.
         model_id = os.environ.get("GEMINI_MODEL_ID", "gemini-3.8-flash")
-        typer.confirm(
-            f"About to call the Gemini API via Vertex AI (model={model_id}, "
-            f"project={project}), billed to that GCP project, not AWS Bedrock. Uses "
-            "Application Default Credentials — run `gcloud auth application-default "
-            "login` first if you haven't. Continue?",
-            abort=True,
-        )
+        if not confirmed:
+            typer.confirm(
+                f"About to call the Gemini API via Vertex AI (model={model_id}, "
+                f"project={project}), billed to that GCP project, not AWS Bedrock. Uses "
+                "Application Default Credentials — run `gcloud auth application-default "
+                "login` first if you haven't. Continue?",
+                abort=True,
+            )
         from strands.models.gemini import GeminiModel
 
         return GeminiModel(
@@ -111,7 +115,7 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
         # Stopgap until Bedrock Claude model access is granted on this account (see
         # docs/DECISIONS.md "Decisions (local-only Anthropic API stopgap)"). local-profile
         # only — never used by the aws profile's Lambda/AgentCore path.
-        model = _build_local_llm_model(provider)
+        model = _build_local_llm_model(provider, confirmed=cfg.get("external_llm_confirmed", False))
     else:
         model_id = cfg["aws"]["llm_model_id"]
         if not model_id:
