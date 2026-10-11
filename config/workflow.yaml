@@ -34,14 +34,14 @@ steps:
 
   - id: technical_design_solution
     owner: engineer
-    inputs: [stakeholder_requirements, scope, conceptual_data_model, solution_architecture]
+    inputs: [data_design_solution, stakeholder_requirements, scope, conceptual_data_model, solution_architecture]
     artifact: Technical Design Solution
     automation: null
 
-  - id: solution_requirements
+  - id: develop_solution_requirements
     owner: analyst
     inputs: [data_design_solution, technical_design_solution]
-    artifact: Solution Requirements
+    artifact: Develop Solution Requirements
     automation: analyst.solution_requirements
 
   - id: data_contract
@@ -49,18 +49,11 @@ steps:
     inputs: [data_design_solution]
     artifact: Data Contract
     automation: null  # future agent task
-    optional: true
 
   - id: test_case_specification
     owner: tester
-    inputs: [data_design_solution, technical_design_solution]
+    inputs: [develop_solution_requirements, data_design_solution, technical_design_solution]
     artifact: Test Case Specification
-    automation: null
-
-  - id: data_solution_development
-    owner: engineer
-    inputs: [solution_requirements]
-    artifact: Data Solution Development
     automation: null
 
   - id: test_automation
@@ -69,14 +62,20 @@ steps:
     artifact: Test Automation
     automation: null
 
+  - id: data_solution_development
+    owner: engineer
+    inputs: [develop_solution_requirements]
+    artifact: Data Solution Development
+    automation: null
+
   - id: test_solution_report
     owner: tester
-    inputs: [data_solution_development, test_automation]
+    inputs: [data_contract, data_solution_development, test_automation]
     artifact: Test Solution Report
     automation: null
 
-  - id: solution_deployment
+  - id: test_solution_deployment
     owner: engineer
     inputs: [test_solution_report]
-    artifact: Solution Deployment
+    artifact: Test Solution Deployment
     automation: null

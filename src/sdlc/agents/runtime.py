@@ -2,7 +2,7 @@
 (analyst/tasks.py). The aws profile's AgentRuntime invokes AgentCore instead — see
 adapters/agentcore_runtime.py and wiring.agent_runtime.
 """
-from sdlc.agents.analyst.tasks import TASKS
+from sdlc.agents.analyst.tasks import resolve_task
 from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, TicketSystem
 
 
@@ -16,7 +16,7 @@ class LocalAgentRuntime:
         self.cfg = cfg
 
     def run(self, task_id: str, context: dict) -> dict:
-        task = TASKS.get(task_id)
+        task = resolve_task(task_id)
         if not task or not task.run:
             raise ValueError(f"no runnable analyst task registered for {task_id!r}")
         return task.run(context, doc_source=self.doc_source, knowledge_index=self.knowledge_index,

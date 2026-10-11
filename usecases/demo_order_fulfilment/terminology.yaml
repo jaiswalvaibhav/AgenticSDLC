@@ -11,7 +11,8 @@ terms:
   solution_architecture: Solution Architecture
   data_design_solution: Data Design Solution
   technical_design_solution: Technical Design Solution
-  solution_requirements: Solution Requirements
+  develop_solution_requirements: Develop Solution Requirements
+  solution_requirements: Solution Requirements  # the published plan page / analyst task output
   data_contract: Data Contract
   test_strategy: Test Strategy
 

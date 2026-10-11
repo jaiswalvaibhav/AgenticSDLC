@@ -98,7 +98,7 @@ uv run sdlc workflow start --use-case demo_order_fulfilment --apply
 uv run sdlc sync-progress --no-dry-run
 #    or loop it: uv run sdlc watch-progress --no-dry-run
 
-# 6. Once Solution Requirements is awaiting approval, add the `sdlc-approved`
+# 6. Once Develop Solution Requirements is awaiting approval, add the `sdlc-approved`
 #    label to its ticket, then run sync-progress again to apply the plan
 ```
 
@@ -106,8 +106,8 @@ uv run sdlc sync-progress --no-dry-run
 testing without round-tripping through Jira labels:
 
 ```bash
-uv run sdlc analyst-plan --use-case demo_order_fulfilment --step solution_requirements --no-dry-run
-uv run sdlc analyst-apply --use-case demo_order_fulfilment --step solution_requirements --no-dry-run
+uv run sdlc analyst-plan --use-case demo_order_fulfilment --step develop_solution_requirements --no-dry-run
+uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_solution_requirements --no-dry-run
 ```
 
 ### No Bedrock Claude model access yet?

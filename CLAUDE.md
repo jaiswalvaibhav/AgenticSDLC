@@ -35,17 +35,17 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - `uv sync`: install dependencies.
 - `uv run sdlc --help`: list all commands (`make <target>` wraps the common ones).
 - `uv run sdlc config show`: show the merged config, with secrets masked.
-- `uv run sdlc workflow preview --use-case demo_order_fulfilment --from solution_requirements [--steps data_contract]`: preview the tickets that would be created.
+- `uv run sdlc workflow preview --use-case demo_order_fulfilment --from develop_solution_requirements`: preview the tickets that would be created.
 - `uv run sdlc sync --root-page-id <id> [--no-dry-run]`: download a Confluence tree into `.data/corpus/`.
 - `uv run sdlc seed [--use-case demo_order_fulfilment] [--no-dry-run]`: create the demo Confluence pages + diagrams — needs real Atlassian credentials in `.env` and a `dot` binary for the diagrams.
 - `uv run sdlc aws-deploy [--no-dry-run]`: deploy the storage stack (CloudFormation: S3 bucket + KB service role), create the Managed Knowledge Base + data source, and (if `profile: aws`) the agent infra. Writes the resolved ids back into `config.yaml`.
 - `uv run sdlc aws-sync [--no-dry-run]`: render changed pages to PDF, sync them to S3, run and poll a Knowledge Base ingestion job.
 - `uv run sdlc search "<query>"`: Retrieve against the Managed KB, scoped to `use_case`.
 - `uv run sdlc aws-destroy [--no-dry-run]`: delete everything `aws-deploy` recorded in `infra/aws/.ledger.json`, in reverse order.
-- `uv run sdlc workflow start --use-case demo_order_fulfilment [--from solution_requirements] [--apply]`: create the epic + step tickets.
+- `uv run sdlc workflow start --use-case demo_order_fulfilment [--from develop_solution_requirements] [--apply]`: create the epic + step tickets.
 - `uv run sdlc sync-progress` / `watch-progress [--no-dry-run]`: one-shot / looping poll of Jira status changes → rollup + readiness + approval check.
-- `uv run sdlc analyst-plan --use-case demo_order_fulfilment [--step solution_requirements] [--no-dry-run]`: manually run the analyst task (needs `aws.llm_model_id` and a populated KB).
-- `uv run sdlc analyst-apply --use-case demo_order_fulfilment [--step solution_requirements] [--no-dry-run]`: manually apply a stored plan.json into Jira.
+- `uv run sdlc analyst-plan --use-case demo_order_fulfilment [--step develop_solution_requirements] [--no-dry-run]`: manually run the analyst task (needs `aws.llm_model_id` and a populated KB).
+- `uv run sdlc analyst-apply --use-case demo_order_fulfilment [--step develop_solution_requirements] [--no-dry-run]`: manually apply a stored plan.json into Jira.
 - `uv run sdlc jira-sync --epic-key <key> [--no-dry-run]`: download a Jira epic's tree into `.data/corpus_jira/` (separate pipeline — see Architecture).
 - `uv run sdlc jira-kb-create [--no-dry-run]`: one-time setup of the Jira downloader's own Knowledge Base.
 - `uv run sdlc jira-aws-sync [--no-dry-run]`: upload `.data/corpus_jira/` to S3 and run ingestion against the Jira KB.

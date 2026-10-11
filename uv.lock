@@ -1929,6 +1929,7 @@ dependencies = [
 dev = [
     { name = "bedrock-agentcore-starter-toolkit" },
     { name = "graphviz" },
+    { name = "pillow" },
     { name = "pytest" },
 ]
 
@@ -1954,6 +1955,7 @@ requires-dist = [
 dev = [
     { name = "bedrock-agentcore-starter-toolkit" },
     { name = "graphviz" },
+    { name = "pillow", specifier = ">=12.3.0" },
     { name = "pytest" },
 ]
 

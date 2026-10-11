@@ -29,7 +29,12 @@ sdlc = "sdlc.cli:app"
 # graphviz) — dev/demo-seed only, never imported by the aws-profile runtime path.
 # bedrock-agentcore-starter-toolkit is the `agentcore` deploy CLI (dev machine only,
 # not needed inside the container it builds — see src/sdlc/aws/agent_deploy.py).
-dev = ["pytest", "graphviz", "bedrock-agentcore-starter-toolkit"]
+dev = [
+    "pytest",
+    "graphviz",
+    "bedrock-agentcore-starter-toolkit",
+    "pillow>=12.3.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

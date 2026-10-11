@@ -298,9 +298,9 @@ def test_check_approvals_regenerates_on_reject(tickets, store, cfg):
 def test_workflow_start_is_idempotent(tickets, store, cfg):
     registry = WorkflowRegistry.load()
     first = orchestrator.workflow_start(tickets=tickets, store=store, registry=registry, cfg=cfg,
-                                        use_case=UC, from_step="solution_requirements", dry_run=False)
+                                        use_case=UC, from_step="develop_solution_requirements", dry_run=False)
     second = orchestrator.workflow_start(tickets=tickets, store=store, registry=registry, cfg=cfg,
-                                         use_case=UC, from_step="solution_requirements", dry_run=False)
+                                         use_case=UC, from_step="develop_solution_requirements", dry_run=False)
 
     assert first == second
     assert len(tickets.issues) == len(first) + 1  # + the epic
@@ -311,7 +311,7 @@ def test_workflow_start_is_idempotent(tickets, store, cfg):
 def test_workflow_start_places_new_step_stories_in_future_sprint(tickets, store, cfg):
     registry = WorkflowRegistry.load()
     steps_map = orchestrator.workflow_start(tickets=tickets, store=store, registry=registry, cfg=cfg,
-                                             use_case=UC, from_step="solution_requirements", dry_run=False)
+                                             use_case=UC, from_step="develop_solution_requirements", dry_run=False)
 
     [(_sprint_id, keys)] = tickets.sprints.items()
     assert set(keys) == set(steps_map.values())  # every newly created step Story, none skipped

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import typer
 
-from sdlc.agents.analyst.tasks import TASKS
+from sdlc.agents.analyst.tasks import resolve_task
 from sdlc.aws import agent_deploy as agent_deploy_mod
 from sdlc.aws import deploy as aws_deploy_mod
 from sdlc.aws import destroy as aws_destroy_mod
@@ -136,7 +136,7 @@ def jira_search(query: str, top_k: int = 10) -> None:
 
 @app.command(name="analyst-plan")
 def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
-                  step: str = typer.Option("solution_requirements", "--step"),
+                  step: str = typer.Option("develop_solution_requirements", "--step"),
                   dry_run: bool = True) -> None:
     """Manually run an analyst task's plan generation for a step (bypasses the
     orchestrator's readiness gating — useful to test/regenerate without Jira events)."""
@@ -144,9 +144,10 @@ def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
     use_case = use_case or cfg["use_case"]
     tickets = jira_client(cfg)
     store = object_store(cfg)
-    task = TASKS.get(step)
+    registry = WorkflowRegistry.load()
+    task = resolve_task(registry[step].automation or "") if step in registry else None
     if not task:
-        typer.echo(f"no analyst task registered for step {step!r}")
+        typer.echo(f"no analyst task automates workflow step {step!r}")
         raise typer.Exit(code=1)
 
     issue_key = _step_issue_key(store, use_case, step)
@@ -158,7 +159,7 @@ def analyst_plan(use_case: str = typer.Option(None, "--use-case"),
 
 @app.command(name="analyst-apply")
 def analyst_apply(use_case: str = typer.Option(None, "--use-case"),
-                   step: str = typer.Option("solution_requirements", "--step"),
+                   step: str = typer.Option("develop_solution_requirements", "--step"),
                    dry_run: bool = True) -> None:
     """Manually apply a stored plan.json for a step (bypasses the sdlc-approved label
     check — the same real work orchestrator.check_approvals does automatically)."""

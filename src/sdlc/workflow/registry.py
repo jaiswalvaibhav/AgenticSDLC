@@ -110,8 +110,8 @@ class WorkflowRegistry:
         --from X treats every ancestor of X as already done (artifact-only), then
         grows the selection to every step whose inputs are all satisfied — including
         steps parallel to X that share those same satisfied ancestors (e.g. starting
-        from solution_requirements also pulls in test_case_specification/test_automation,
-        since both only need data_design_solution/technical_design_solution).
+        from develop_solution_requirements also pulls in test_case_specification/test_automation
+        and the rest of the tester/deploy chain).
         """
         explicit = list(steps or [])
         for step_id in [from_step, *explicit]:

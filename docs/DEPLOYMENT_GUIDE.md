@@ -203,7 +203,7 @@ duplicate tickets (stable marker labels).
 Lets say if the lifecycle steps (`stakeholder_requirements`, `scope`, `data_design_solution`,
 `technical_design_solution`, etc.) are manually updated, i.e. a human attaches the artifact to the
 Story/Sub-task and moves it to Done in Jira. Then, the next step —
-`solution_requirements` — can be run as (`analyst.solution_requirements`) which runs the
+`develop_solution_requirements` — automated as `analyst.solution_requirements` — which runs the
 analyst agent once its inputs (`data_design_solution`, `technical_design_solution`)
 are Done.
 
@@ -225,7 +225,7 @@ uv run sdlc sync-progress --no-dry-run
 uv run sdlc watch-progress --no-dry-run
 ```
 
-When `solution_requirements` becomes ready, `sync-progress` runs the analyst agent
+When `develop_solution_requirements` becomes ready, `sync-progress` runs the analyst agent
 automatically, writing `workflow/<use_case>/plan.json` + `.md` and publishing a
 Confluence page, then moves the ticket to an awaiting-approval state.
 
@@ -246,12 +246,12 @@ uv run sdlc sync-progress --no-dry-run
 
 ```bash
 # regenerate a plan directly, bypassing orchestrator readiness gating
-uv run sdlc analyst-plan --use-case demo_order_fulfilment --step solution_requirements --dry-run
-uv run sdlc analyst-plan --use-case demo_order_fulfilment --step solution_requirements --no-dry-run
+uv run sdlc analyst-plan --use-case demo_order_fulfilment --step develop_solution_requirements --dry-run
+uv run sdlc analyst-plan --use-case demo_order_fulfilment --step develop_solution_requirements --no-dry-run
 
 # apply a stored plan.json directly, bypassing the sdlc-approved label check
-uv run sdlc analyst-apply --use-case demo_order_fulfilment --step solution_requirements --dry-run
-uv run sdlc analyst-apply --use-case demo_order_fulfilment --step solution_requirements --no-dry-run
+uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_solution_requirements --dry-run
+uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_solution_requirements --no-dry-run
 ```
 
 ---

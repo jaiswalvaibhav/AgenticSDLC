@@ -23,6 +23,12 @@ class AnalystTask:
 TASKS: dict[str, AnalystTask] = {}
 
 
+def resolve_task(ref: str) -> AnalystTask | None:
+    """Looks a task up by id, or by a workflow.yaml `automation` reference
+    ("analyst.<task id>", which is what the orchestrator hands to AgentRuntime.run)."""
+    return TASKS.get(ref.removeprefix("analyst."))
+
+
 def register(task: AnalystTask) -> AnalystTask:
     TASKS[task.id] = task
     return task

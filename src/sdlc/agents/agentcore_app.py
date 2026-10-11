@@ -16,7 +16,7 @@ tradeoff. load_config() already reads env var overrides the same way it does loc
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 from sdlc.adapters.s3_store import S3ObjectStore
-from sdlc.agents.analyst.tasks import TASKS
+from sdlc.agents.analyst.tasks import resolve_task
 from sdlc.config import load_config
 from sdlc.wiring import confluence_client, jira_client, knowledge_index as knowledge_index_factory
 
@@ -27,7 +27,7 @@ def _dispatch(payload: dict) -> dict:
     """Pulled out of the @app.entrypoint function so it's unit-testable without the
     AgentCore runtime server itself."""
     task_id, context = payload["task_id"], payload["context"]
-    task = TASKS.get(task_id)
+    task = resolve_task(task_id)
     if not task or not task.run:
         return {"status": "error", "reason": f"no runnable analyst task for {task_id!r}"}
 

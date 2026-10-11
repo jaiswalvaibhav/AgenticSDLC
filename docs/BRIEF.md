@@ -37,16 +37,16 @@ Autonomous Data SDLC. Business raises a Frontdoor Request. The Data Analyst agen
   4. Solution Architecture
   5. Data Design Solution
   6. Technical Design Solution
-  7. Solution Requirements (automated: analyst agent)
-  8. Data Contract (optional; input: Data Design Solution)
+  7. Develop Solution Requirements (automated: analyst agent)
+  8. Data Contract (input: Data Design Solution; required by the Test Solution Report)
   9. Test Case Specification
   10. Data Solution Development
   11. Test Automation
   12. Test Solution Report (TSR)
-  13. Solution Deployment
+  13. Test Solution Deployment
 - `sdlc workflow start --use-case <uc> [--from <step>] [--steps ...]` (dry-run by default):
   - creates ONE epic per use case at the start, plus one Story per selected step
-  - `--from` selects that step and every non-optional step downstream of it; optional steps (e.g. Data Contract) are created only if they are explicitly chosen
+  - `--from` selects that step and every non-optional step downstream of it; a step marked `optional: true` in workflow.yaml is created only if explicitly chosen (none are today)
   - each unselected direct input gets an "artifact-only" Story; I attach the artifact and mark it Done
   - all tickets, including generated requirement stories, sit under the same epic
 - Artifacts are attached to the step ticket. A Confluence page link is preferred; a file attachment (xlsx/xlsm/pdf/docx/csv) is the fallback.
@@ -118,7 +118,7 @@ Configuration: config.yaml with environment-variable overrides, plus a profile s
   - If a step ticket has no usable artifact (or several), the agent comments on the ticket asking for exactly one and stays blocked. Record anchor page IDs and versions in the plan file.
   - Each registered task declares its own anchors and retrieval scope.
 - Output: solution requirements turned into a Jira structure, meaning Epics, then Stories, then Sub-tasks, with acceptance criteria. Assign engineering work to a configurable "engineering" assignee or component, and test work to a configurable "tester" assignee or component. Each issue links back to its source Confluence page and section, and mentions the relevant diagram.
-- Flow: generate a plan file (JSON + readable markdown) first. Create the Jira issues only after I approve it, with a separate `apply` step. Approval is given with the label `sdlc-approved` on the Solution Requirements step ticket.
+- Flow: generate a plan file (JSON + readable markdown) first. Create the Jira issues only after I approve it, with a separate `apply` step. Approval is given with the label `sdlc-approved` on the Develop Solution Requirements step ticket.
 - Generated Stories (labelled `ws:<workstream>`) sit under the use-case epic, each with Engineering and Testing Sub-tasks.
 - Run it through the AgentRuntime interface. Locally it is a plain Python runner; on AWS it is deployed to AgentCore.
 - Framework: Strands Agents SDK with a Bedrock Claude model.
