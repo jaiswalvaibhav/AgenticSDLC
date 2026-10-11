@@ -23,14 +23,17 @@ agent's own registered tools (e.g. search_knowledge) — so the model has no way
 honour SYSTEM_PROMPT's instruction to use search_knowledge for supporting context.
 """
 import html
+import re
 from pathlib import Path
 
 import yaml
 
 from sdlc.agents.analyst import anchors
-from sdlc.agents.analyst.anchors import AnchorNotConfirmed, ImageRef, read_anchor
+from sdlc.agents.analyst.anchors import AnchorResult, DocumentRef, ImageRef, read_anchor
 from sdlc.agents.analyst.plan_schema import SolutionRequirementsPlan
+from sdlc.agents.analyst.ticket_anchors import AnchorMissing, pick_anchor_source
 from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, Page, TicketSystem
+from sdlc.workflow.orchestrator import _steps_map, load_terminology
 
 SYSTEM_PROMPT = (
     "You are the data analyst agent in an Autonomous Data SDLC. Below is the Data "
@@ -41,7 +44,8 @@ SYSTEM_PROMPT = (
     "Produce solution requirements grouped into workstreams (raw_ingestion, "
     "curated_modelling, presentation_bi, data_quality), each with clear acceptance "
     "criteria, and a citation back to the exact DDS/TDS section heading it came from "
-    "plus any stakeholder requirement ids (e.g. SR-1) it traces to."
+    "plus any stakeholder requirement ids (e.g. SR-1) it traces to. For a document "
+    "given as a PDF, cite its own section headings as source_section."
 )
 
 
@@ -125,12 +129,55 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
                  system_prompt=SYSTEM_PROMPT)
 
 
-def _content_blocks(dds, tds) -> list[dict]:
-    blocks = [{"text": "## Data Design Solution\n\n" + _sections_text(dds.sections)}]
-    blocks += [_image_block(img) for img in dds.images]
-    blocks.append({"text": "## Technical Design Solution\n\n" + _sections_text(tds.sections)})
-    blocks += [_image_block(img) for img in tds.images]
+def _content_blocks(anchors: list[tuple[str, AnchorResult]]) -> list[dict]:
+    blocks: list[dict] = []
+    for label, doc in anchors:
+        body = _sections_text(doc.sections) if doc.sections else "(attached as a document below)"
+        blocks.append({"text": f"## {label}\n\n{body}"})
+        blocks += [_image_block(img) for img in doc.images]
+        blocks += [_document_block(label, d) for d in doc.documents]
     return blocks
+
+
+def _document_block(label: str, doc: DocumentRef) -> dict:
+    # Converse document names allow only alphanumerics, single spaces, hyphens, parentheses
+    # and square brackets (up to 200 chars); terminology labels are neutral names.
+    name = re.sub(r"\s+", " ", re.sub(r"[^A-Za-z0-9 \-()\[\]]", " ", label)).strip()[:200] or "document"
+    return {"document": {"format": doc.format, "name": name, "source": {"bytes": doc.data}}}
+
+
+def read_task_anchors(anchor_roles: tuple[str, ...], *, use_case: str, tickets: TicketSystem,
+                       doc_source: DocumentSource, store: ObjectStore,
+                       data_dir: str | Path) -> list[tuple[str, AnchorResult]]:
+    """Reads each anchor step's artifact off its Jira step ticket, in full. Raises
+    AnchorMissing (naming the label) when a step ticket is absent or has no usable artifact."""
+    steps_map = _steps_map(store, use_case)
+    terms = load_terminology(use_case)["terms"]
+    anchors = []
+    for step_id in anchor_roles:
+        label = terms.get(step_id, step_id)
+        key = steps_map.get(step_id)
+        if not key:
+            raise AnchorMissing(step_id, f"no ticket was created for step {label!r}; run workflow start first")
+        try:
+            source = pick_anchor_source(key, tickets)
+        except AnchorMissing as exc:
+            raise AnchorMissing(key, f"{label}: {exc.reason}") from exc
+        anchors.append((label, read_anchor(source, doc_source=doc_source, tickets=tickets,
+                                            store=store, data_dir=data_dir)))
+    return anchors
+
+
+def _over_budget(anchors: list[tuple[str, AnchorResult]], cfg: dict) -> str | None:
+    limits = cfg.get("analyst", {})
+    max_chars, max_pdf = limits.get("max_anchor_chars", 400_000), limits.get("max_pdf_bytes", 4_500_000)
+    sizes = [(f"{label} / {heading}", len(text)) for label, doc in anchors for heading, text in doc.sections]
+    pdfs = [(label, len(d.data)) for label, doc in anchors for d in doc.documents]
+    reasons = []
+    if sum(n for _, n in sizes) > max_chars:
+        reasons.append(f"text is over {max_chars} characters: " + ", ".join(f"{k}: {n}" for k, n in sizes))
+    reasons += [f"{label} PDF is {n} bytes (limit {max_pdf})" for label, n in pdfs if n > max_pdf]
+    return "; ".join(reasons) or None
 
 
 def _image_block(img: ImageRef) -> dict:
@@ -200,20 +247,26 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
     use_case, issue_key = context["use_case"], context["issue_key"]
     data_dir = cfg["data_dir"]
 
+    from sdlc.agents.analyst.tasks import TASKS  # lazy: tasks imports this module
+
     try:
-        dds = read_anchor("data_design_solution", use_case=use_case, doc_source=doc_source,
-                           store=store, data_dir=data_dir)
-        tds = read_anchor("technical_design_solution", use_case=use_case, doc_source=doc_source,
-                           store=store, data_dir=data_dir)
-    except AnchorNotConfirmed as exc:
+        anchor_docs = read_task_anchors(TASKS["solution_requirements"].anchor_roles, use_case=use_case,
+                                         tickets=tickets, doc_source=doc_source, store=store,
+                                         data_dir=data_dir)
+    except AnchorMissing as exc:
         tickets.add_comment(
-            issue_key, f"Can't resolve anchor {exc.role!r} automatically "
-                       f"({exc}). Set page_id in usecases/{use_case}/page_roles.yaml, then re-run.",
-            dry_run=dry_run)
+            issue_key, f"Can't read the anchor documents ({exc.reason}) on {exc.issue_key}. Attach or "
+                       "link it there, then re-run.", dry_run=dry_run)
         return {"status": "blocked", "reason": str(exc)}
 
+    if reason := _over_budget(anchor_docs, cfg):
+        tickets.add_comment(issue_key, f"Anchor documents are too large to read in full: {reason}. "
+                                       "Reduce them or raise the analyst limits in config.yaml.",
+                            dry_run=dry_run)
+        return {"status": "blocked", "reason": reason}
+
     agent = agent or _build_real_agent(knowledge_index, use_case, cfg)
-    plan = agent(_content_blocks(dds, tds), structured_output_model=SolutionRequirementsPlan).structured_output
+    plan = agent(_content_blocks(anchor_docs), structured_output_model=SolutionRequirementsPlan).structured_output
     plan.use_case = use_case
 
     store.put_json(f"workflow/{use_case}/plan.json", plan.model_dump(), dry_run=dry_run)

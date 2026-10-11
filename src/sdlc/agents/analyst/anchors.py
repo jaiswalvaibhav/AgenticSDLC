@@ -1,15 +1,17 @@
-"""Anchor resolution + full-text reading for the analyst agent.
+"""Anchor reading for the analyst agent.
 
-Per BRIEF.md: anchors (DDS/TDS) are resolved through page_roles.yaml (page_id
-preferred, then label, then title_pattern) and read IN FULL — section by section,
-never through top-k retrieval. If an anchor isn't configured (no page_id), the agent
-must show the candidate it found and wait for confirmation, not silently proceed —
-that's AnchorNotConfirmed below.
+Anchors (DDS/TDS/...) are found on the Jira step tickets (ticket_anchors.py) and read IN
+FULL — never through top-k retrieval. A Confluence page is read section by section (split
+at h1-h3) with diagrams as image bytes, from the local corpus when synced, else live. An
+attached file is read per format: xlsx -> one CSV section per sheet, docx -> sections split
+at Heading 1-3 (plus tables and images), csv -> text, pdf -> passed through as a native
+document for the model to read.
 
-Reads from the local corpus (confluence_sync's canonical copy) when the page has been
-synced; falls back to a live DocumentSource read otherwise. Diagrams come back as
-image bytes, ready for a multi-modal message to Claude.
+page_roles.yaml no longer drives anchor resolution; resolve_anchor_page_id below is still
+used for the use case root page (where the plan is published).
 """
+import csv
+import io
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +19,8 @@ from pathlib import Path
 import yaml
 from bs4 import BeautifulSoup
 
-from sdlc.ports import DocumentSource, ObjectStore
+from sdlc.agents.analyst.ticket_anchors import AttachmentSource, ConfluenceSource
+from sdlc.ports import DocumentSource, ObjectStore, TicketSystem
 
 _IMAGE_FORMATS = {"image/png": "png", "image/jpeg": "jpeg", "image/gif": "gif", "image/webp": "webp"}
 _EXT_FORMATS = {"png": "png", "jpg": "jpeg", "jpeg": "jpeg", "gif": "gif", "webp": "webp"}
@@ -40,12 +43,19 @@ class ImageRef:
 
 
 @dataclass
+class DocumentRef:
+    format: str  # a Converse document format the model reads natively (today: "pdf")
+    data: bytes
+
+
+@dataclass
 class AnchorResult:
     page_id: str
     title: str
     url: str
     sections: list[tuple[str, str]]  # [(heading, text), ...]
     images: list[ImageRef] = field(default_factory=list)
+    documents: list[DocumentRef] = field(default_factory=list)
 
 
 def _page_roles(use_case: str) -> dict:
@@ -106,11 +116,9 @@ def _read_from_corpus(page_id: str, *, store: ObjectStore, data_dir: Path) -> An
                         sections=_split_sections(html_path.read_text()), images=images)
 
 
-def read_anchor(role: str, *, use_case: str, doc_source: DocumentSource, store: ObjectStore,
-                 data_dir: str | Path) -> AnchorResult:
-    page_id = resolve_anchor_page_id(role, use_case=use_case, doc_source=doc_source)
-
-    from_corpus = _read_from_corpus(page_id, store=store, data_dir=Path(data_dir))
+def _read_confluence_page(page_id: str, *, doc_source: DocumentSource, store: ObjectStore,
+                           data_dir: Path) -> AnchorResult:
+    from_corpus = _read_from_corpus(page_id, store=store, data_dir=data_dir)
     if from_corpus:
         return from_corpus
 
@@ -121,3 +129,68 @@ def read_anchor(role: str, *, use_case: str, doc_source: DocumentSource, store: 
     ]
     return AnchorResult(page_id=page.page_id, title=page.title, url=page.url,
                         sections=_split_sections(page.html), images=images)
+
+
+def _read_xlsx(data: bytes) -> list[tuple[str, str]]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    sections = []
+    for sheet in workbook.worksheets:
+        out = io.StringIO()
+        writer = csv.writer(out, lineterminator="\n")
+        for row in sheet.iter_rows(values_only=True):
+            if any(cell is not None for cell in row):
+                writer.writerow(["" if cell is None else cell for cell in row])
+        sections.append((sheet.title, out.getvalue()))
+    return sections
+
+
+def _read_docx(data: bytes) -> tuple[list[tuple[str, str]], list[ImageRef]]:
+    from docx import Document
+    from docx.table import Table
+
+    document = Document(io.BytesIO(data))
+    sections: list[tuple[str, str]] = []
+    heading, parts = "(untitled)", []
+    for block in document.iter_inner_content():
+        if isinstance(block, Table):
+            parts += [" | ".join(c.text.strip() for c in row.cells) for row in block.rows]
+        elif block.style is not None and block.style.name in ("Heading 1", "Heading 2", "Heading 3"):
+            if parts:
+                sections.append((heading, "\n".join(parts)))
+            heading, parts = block.text.strip(), []
+        elif block.text.strip():
+            parts.append(block.text.strip())
+    if parts:
+        sections.append((heading, "\n".join(parts)))
+
+    images = [ImageRef(format=_IMAGE_FORMATS[rel.target_part.content_type], data=rel.target_part.blob)
+              for rel in document.part.rels.values()
+              if "/image" in rel.reltype and rel.target_part.content_type in _IMAGE_FORMATS]
+    return sections, images
+
+
+def _read_attachment(source: AttachmentSource, *, tickets: TicketSystem) -> AnchorResult:
+    att = source.attachment
+    data = tickets.download_attachment(att)
+    result = AnchorResult(page_id=att.attachment_id, title=att.title, url=att.download_url, sections=[])
+    if source.format == "xlsx":
+        result.sections = _read_xlsx(data)
+    elif source.format == "docx":
+        result.sections, result.images = _read_docx(data)
+    elif source.format == "csv":
+        result.sections = [(att.title, data.decode("utf-8-sig"))]
+    elif source.format == "pdf":
+        result.documents = [DocumentRef(format="pdf", data=data)]
+    else:
+        raise ValueError(f"unsupported anchor attachment format {source.format!r}")
+    return result
+
+
+def read_anchor(source: ConfluenceSource | AttachmentSource, *, doc_source: DocumentSource,
+                 tickets: TicketSystem, store: ObjectStore, data_dir: str | Path) -> AnchorResult:
+    if isinstance(source, ConfluenceSource):
+        return _read_confluence_page(source.page_id, doc_source=doc_source, store=store,
+                                      data_dir=Path(data_dir))
+    return _read_attachment(source, tickets=tickets)

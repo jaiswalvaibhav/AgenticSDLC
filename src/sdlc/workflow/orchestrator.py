@@ -16,6 +16,7 @@ from pathlib import Path
 
 import yaml
 
+from sdlc.agents.analyst.ticket_anchors import AnchorMissing, pick_anchor_source
 from sdlc.ports import AgentRuntime, Issue, ObjectStore, StatusEvent, TicketSystem, TransitionNotAvailable
 from sdlc.workflow.registry import Step, WorkflowRegistry
 
@@ -150,6 +151,22 @@ def _start_step(step: Step, *, steps_map: dict, tickets: TicketSystem, store: Ob
             _save_run_state(store, use_case, run_state, dry_run)
 
 
+def _check_anchor_artifact(step_id: str, issue_key: str, *, tickets: TicketSystem,
+                            registry: WorkflowRegistry, dry_run: bool) -> None:
+    """Done stays a human decision, but if the step feeds an automated step, its ticket must
+    carry something the agent can read in full (see ticket_anchors) — else say so now, rather
+    than only when the agent later blocks. Attaching after Done fires no status event, so the
+    comment asks for a reopen."""
+    if not any(s.automation and step_id in s.inputs for s in registry.all_steps()):
+        return
+    try:
+        pick_anchor_source(issue_key, tickets)
+    except AnchorMissing as exc:
+        tickets.add_comment(
+            issue_key, f"Marked Done but no usable artifact ({exc.reason}). Move it back to In "
+                       "Progress, attach or link it, then mark Done again.", dry_run=dry_run)
+
+
 def handle_status_change(event: StatusEvent, *, tickets: TicketSystem, store: ObjectStore,
                           cfg: dict, registry: WorkflowRegistry, agent: AgentRuntime,
                           dry_run: bool = True) -> None:
@@ -171,6 +188,7 @@ def handle_status_change(event: StatusEvent, *, tickets: TicketSystem, store: Ob
     if not step_id or step_id not in registry:
         return
 
+    _check_anchor_artifact(step_id, event.issue_key, tickets=tickets, registry=registry, dry_run=dry_run)
     steps_map = _steps_map(store, use_case)
     for downstream in registry.all_steps():
         if step_id not in downstream.inputs:

@@ -207,6 +207,13 @@ Story/Sub-task and moves it to Done in Jira. Then, the next step —
 analyst agent once its inputs (`data_design_solution`, `technical_design_solution`)
 are Done.
 
+The analyst reads its anchors (DDS, TDS) straight off those step tickets, so each one must carry
+**exactly one** of: a Confluence page link (preferred), or an `.xlsx`/`.xlsm`/`.pdf`/`.docx`/`.csv`
+attachment. After `seed`, link the seeded DDS/TDS pages on their step tickets before marking them
+Done. If a ticket is marked Done with nothing usable, the orchestrator comments on it; attaching
+afterwards fires no status event, so move it back to In Progress and mark it Done again.
+Anchors above `analyst.max_anchor_chars` / `max_pdf_bytes` (`config.yaml`) block rather than truncate.
+
 Poll Jira so the orchestrator can roll up statuses, detect newly-ready steps, and run
 automated ones:
 

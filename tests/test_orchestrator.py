@@ -181,6 +181,41 @@ def test_downstream_step_waits_without_artifact(tickets, store, cfg, registry, m
     assert tickets.get_issue(b_key).status == STATUSES["todo"]
 
 
+def _done_event(tickets, store, monkeypatch, *, link=None):
+    monkeypatch.setattr(orchestrator, "load_terminology", lambda uc: {"statuses": STATUSES})
+    key = _step_issue(tickets, store, UC, "a")
+    tickets.transition_issue(key, STATUSES["done"], dry_run=False)
+    if link:
+        tickets.add_remote_link(key, link, "TDS", dry_run=False)
+    return key, StatusEvent(key, STATUSES["in_progress"], STATUSES["done"])
+
+
+def _handle(event, tickets, store, cfg, steps):
+    orchestrator.handle_status_change(event, tickets=tickets, store=store, cfg=cfg,
+                                       registry=WorkflowRegistry(steps), agent=FakeAgentRuntime(), dry_run=False)
+
+
+_FEEDS_AUTOMATED = [Step("a", "analyst", (), "A", None), Step("b", "analyst", ("a",), "B", "analyst.b")]
+
+
+def test_done_step_feeding_automated_step_without_artifact_gets_a_comment(tickets, store, cfg, monkeypatch):
+    key, event = _done_event(tickets, store, monkeypatch)
+    _handle(event, tickets, store, cfg, _FEEDS_AUTOMATED)
+    assert "Marked Done but no usable artifact" in tickets.comments[key][0]
+
+
+def test_done_step_with_confluence_link_gets_no_comment(tickets, store, cfg, monkeypatch):
+    key, event = _done_event(tickets, store, monkeypatch, link="https://x.atlassian.net/wiki/spaces/S/pages/7/T")
+    _handle(event, tickets, store, cfg, _FEEDS_AUTOMATED)
+    assert key not in tickets.comments
+
+
+def test_done_step_feeding_only_manual_steps_is_not_checked(tickets, store, cfg, monkeypatch):
+    key, event = _done_event(tickets, store, monkeypatch)
+    _handle(event, tickets, store, cfg, [Step("a", "analyst", (), "A", None), Step("b", "analyst", ("a",), "B", None)])
+    assert key not in tickets.comments
+
+
 # ------------------------------------------------------------------- approval --
 _SAMPLE_PLAN = {
     "use_case": UC,

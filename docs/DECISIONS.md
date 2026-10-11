@@ -202,3 +202,14 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
   not independently doc-verified this session** — same caveat as the existing changelog shape
   — it's the long-standing documented Jira Cloud shape, pinned by mocked tests, but check it
   against a real response from your instance before relying on it.
+
+
+## Decisions (anchors read from Jira step tickets, any supported format — 2026-10-11)
+- **Why**: in the real workflow the DDS may be an Excel file and the TDS a Confluence page, attached per ticket — not fixed once per use case in `page_roles.yaml`. User-confirmed design.
+- **Resolution**: `ticket_anchors.pick_anchor_source` reads the step ticket (found through `workflow/<uc>/steps.json`) of each `AnalystTask.anchor_roles` entry. Exactly one Confluence link (preferred) or exactly one supported attachment; anything else raises `AnchorMissing` → comment on the triggering ticket, step stays blocked. No `page_roles.yaml` fallback (user-confirmed). `page_roles.yaml` still seeds the demo tree, numbers the plan page and gives `usecase_root`.
+- **Generic over tickets and formats** (user chose "Option 2"): the engine loops over `anchor_roles`, labelled from `terminology.yaml`; a future task only declares its anchor steps.
+- **Done stays human.** An upload isn't sign-off and fires no status event. When a step that feeds an automated step is marked Done, `orchestrator._check_anchor_artifact` comments on it if it has no usable artifact (asks to reopen, attach, re-mark Done). Driven by `workflow.yaml`'s `automation`/`inputs`, so it covers future automated steps.
+- **Formats**: Confluence → existing reader. xlsx/xlsm → openpyxl `read_only`, one CSV section per sheet (sheet name = `source_section`). docx → python-docx, split at Heading 1–3, tables as ` | ` rows, images kept. csv → text. pdf → native Converse document block (works on Bedrock and the Anthropic stopgap). xlsx/docx are converted rather than sent natively because the installed Strands `AnthropicModel` raises TypeError on them (only pdf/csv/html/md/txt are accepted; `strands/models/anthropic.py:70`). `.xls`/`.doc` unsupported.
+- **Not truncating**: above `analyst.max_anchor_chars` (default 400000) or `max_pdf_bytes` (default 4500000 — placeholder, set to Bedrock's documented per-document limit) the step blocks with a per-section size breakdown. Split-and-merge (one LLM call per sheet group) is deferred until a real DDS exceeds the budget.
+- **Still search-free**: anchors are read in full, never via `search_knowledge` — traceability (`source_doc`/`source_section`) needs the complete, ordered source.
+- **Unverified**: the Jira remote-link list response shape (Atlassian docs page truncated when fetched) — pinned by a mocked test only.

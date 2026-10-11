@@ -195,6 +195,9 @@ class FakeTicketSystem:
         if not dry_run:
             self.remote_links.setdefault(key, []).append((url, title))
 
+    def get_remote_links(self, key: str) -> list[tuple[str, str]]:
+        return self.remote_links.get(key, [])
+
     def get_or_create_future_sprint(self, dry_run: bool = True) -> str:
         if dry_run:
             return "(dry-run)"

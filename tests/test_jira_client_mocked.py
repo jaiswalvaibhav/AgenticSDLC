@@ -206,3 +206,13 @@ def test_download_attachment_gets_content_url(client):
                                                    media_type="x", download_url="https://x.atlassian.net/attachment/att1"))
 
     assert data == b"BYTES"
+
+
+def test_get_remote_links_returns_url_title_pairs(client):
+    client._session.queue("GET", "/issue/DEMO-1/remotelink", FakeResponse([
+        {"id": 1, "object": {"url": "https://x.atlassian.net/wiki/spaces/S/pages/42/Doc", "title": "TDS"}},
+        {"id": 2, "object": {"url": "https://example.com/y"}},
+    ]))
+
+    assert client.get_remote_links("DEMO-1") == [
+        ("https://x.atlassian.net/wiki/spaces/S/pages/42/Doc", "TDS"), ("https://example.com/y", "")]

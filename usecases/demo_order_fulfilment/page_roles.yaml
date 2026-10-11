@@ -1,3 +1,5 @@
+# Anchor documents (DDS/TDS/...) are read from their Jira step tickets, not from here; the
+# anchor roles below only seed the demo tree and number the published plan page.
 roles:
   usecase_root:
     label: role-usecase-root

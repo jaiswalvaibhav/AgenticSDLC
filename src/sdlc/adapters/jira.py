@@ -20,6 +20,9 @@ guidance, except where noted:
 - PUT  /rest/api/3/issue/{key}                -> {"update": {"labels": [{"add": "..."}]}}
 - POST /rest/api/3/issueLink                  -> {"type": {"name": "Blocks"}, "inwardIssue", "outwardIssue"}
 - POST /rest/api/3/issue/{key}/remotelink     -> {"object": {"url": "...", "title": "..."}}
+- GET  /rest/api/3/issue/{key}/remotelink     -> a top-level array of {"id", "object": {"url",
+  "title"}, ...}. **NOT independently doc-verified this session** (the docs page kept
+  truncating) — check it against a real response from your instance.
 - GET  /rest/api/3/issue/{key}?fields=attachment -> fields.attachment is a list of
   {id, filename, mimeType, size, content}. **NOT independently doc-verified this
   session** (same caveat as the changelog shape below) — this is the long-standing
@@ -250,6 +253,10 @@ class JiraClient:
             print(f"[dry-run] would add remote link to {key}: {title} ({url})")
             return
         self._post(f"/issue/{key}/remotelink", {"object": {"url": url, "title": title}})
+
+    def get_remote_links(self, key: str) -> list[tuple[str, str]]:
+        return [(item["object"]["url"], item["object"].get("title", ""))
+                for item in self._get(f"/issue/{key}/remotelink")]
 
     def _board_id_for_project(self) -> int:
         if self._board_id is None:

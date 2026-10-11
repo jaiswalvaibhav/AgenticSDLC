@@ -10,7 +10,7 @@ def test_importing_orchestrator_lambda_stays_free_of_heavy_deps():
     script = (
         "import sys; import sdlc.aws.orchestrator_lambda; "
         "heavy = [m for m in sys.modules if any(h in m for h in "
-        "('bs4', 'strands', 'weasyprint', 'graphviz'))]; "
+        "('bs4', 'strands', 'weasyprint', 'graphviz', 'openpyxl', 'docx'))]; "
         "print(','.join(heavy))"
     )
     result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=True)

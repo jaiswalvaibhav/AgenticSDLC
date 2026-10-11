@@ -49,7 +49,7 @@ Autonomous Data SDLC. Business raises a Frontdoor Request. The Data Analyst agen
   - `--from` selects that step and every non-optional step downstream of it; optional steps (e.g. Data Contract) are created only if they are explicitly chosen
   - each unselected direct input gets an "artifact-only" Story; I attach the artifact and mark it Done
   - all tickets, including generated requirement stories, sit under the same epic
-- Artifacts are attached to the step ticket. A Confluence page link is preferred, and it overrides `page_roles.yaml`. A file attachment is the fallback.
+- Artifacts are attached to the step ticket. A Confluence page link is preferred; a file attachment (xlsx/xlsm/pdf/docx/csv) is the fallback.
 - When all of a step's inputs are Done and have artifacts, the orchestrator comments, assigns the step and moves it to In Progress. If the step is automated, it also runs the agent.
 - The agent attaches its plan to the step ticket. Adding the label `sdlc-approved` makes the next poll apply the plan; `sdlc-rejected` plus a comment regenerates it.
 
@@ -113,9 +113,9 @@ Configuration: config.yaml with environment-variable overrides, plus a profile s
 
 ### 5. Analyst agent (the only agent in scope now)
 - Inputs (hybrid): anchor pages are given explicitly; the knowledge index supplies supporting detail on demand.
-  - Anchors: the Data Design Solution and Technical Design Solution, including their diagrams, are resolved through page_roles.yaml (page ID preferred) and read IN FULL from the downloaded corpus (or Confluence), section by section if too long. Never read them through top-k retrieval.
+  - Anchors: the Data Design Solution and Technical Design Solution, including their diagrams, are found on their Jira step tickets (a Confluence link, or an xlsx/pdf/docx/csv attachment) and read IN FULL (Confluence pages from the downloaded corpus, else live), section by section if too long. Never read them through top-k retrieval.
   - Retrieval: a `search_knowledge(query)` tool through the KnowledgeIndex, scoped by metadata filters (space / hierarchy path of the use case) so other use cases in the same KB don't leak in. Use it for stakeholder requirements, source data analysis, conceptual model, feasibility, glossary.
-  - If an anchor isn't configured, the agent may find candidates via search but must show me the resolved pages and wait for confirmation. Record anchor page IDs and versions in the plan file.
+  - If a step ticket has no usable artifact (or several), the agent comments on the ticket asking for exactly one and stays blocked. Record anchor page IDs and versions in the plan file.
   - Each registered task declares its own anchors and retrieval scope.
 - Output: solution requirements turned into a Jira structure, meaning Epics, then Stories, then Sub-tasks, with acceptance criteria. Assign engineering work to a configurable "engineering" assignee or component, and test work to a configurable "tester" assignee or component. Each issue links back to its source Confluence page and section, and mentions the relevant diagram.
 - Flow: generate a plan file (JSON + readable markdown) first. Create the Jira issues only after I approve it, with a separate `apply` step. Approval is given with the label `sdlc-approved` on the Solution Requirements step ticket.

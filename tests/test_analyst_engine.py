@@ -1,12 +1,14 @@
 """Tests the engine's anchor-reading/prompt-building/plan-writing logic end-to-end
 with a fake Strands agent (no real Bedrock call) and fakes for everything else."""
+import io
 from pathlib import Path
 
 import pytest
 
 from sdlc.adapters.fake import FakeDocumentSource, FakeKnowledgeIndex, FakeObjectStore, FakeTicketSystem
-from sdlc.agents.analyst.engine import run_solution_requirements
+from sdlc.agents.analyst.engine import read_task_anchors, run_solution_requirements
 from sdlc.agents.analyst.plan_schema import Requirement, SolutionRequirementsPlan
+from sdlc.ports import Attachment
 
 UC = "demo_order_fulfilment"
 
@@ -48,12 +50,29 @@ def _seed_anchor(tmp_path: Path, store: FakeObjectStore, page_id: str, title: st
 
 @pytest.fixture(autouse=True)
 def page_roles(monkeypatch):
+    # still used for the use case root (where the plan page is published) and title numbering
     monkeypatch.setattr(
         "sdlc.agents.analyst.anchors._page_roles",
         lambda use_case: {"usecase_root": {"page_id": "0"},
                            "data_design_solution": {"page_id": "1"},
                            "technical_design_solution": {"page_id": "2"}},
     )
+
+
+def _step_tickets(store: FakeObjectStore, tickets: FakeTicketSystem, *, dds=None, tds=None) -> None:
+    """Creates the DDS/TDS step tickets and records them in steps.json. `dds`/`tds` are
+    ("link", page_id) or ("file", filename, bytes) artifacts attached to the ticket."""
+    steps = {}
+    for step_id, artifact in (("data_design_solution", dds), ("technical_design_solution", tds)):
+        key = tickets.create_issue("Story", step_id, dry_run=False).key
+        steps[step_id] = key
+        if artifact and artifact[0] == "link":
+            tickets.add_remote_link(key, f"https://x.atlassian.net/wiki/spaces/S/pages/{artifact[1]}/T",
+                                    step_id, dry_run=False)
+        elif artifact:
+            tickets.attachments[key] = [Attachment("att-" + key, artifact[1], "x/y", "https://dl")]
+            tickets.attachment_bytes["att-" + key] = artifact[2]
+    store.put_json(f"workflow/{UC}/steps.json", steps, dry_run=False)
 
 
 def test_writes_plan_and_comments_on_success(tmp_path, cfg):
@@ -63,6 +82,7 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     doc_source = FakeDocumentSource()
     doc_source.add_page("Order Fulfilment Performance", page_id="0")
     tickets = FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
     issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
     plan = SolutionRequirementsPlan(summary="Two requirements.", requirements=[
         Requirement(requirement_id="REQ-1", workstream="raw_ingestion", title="Ingest Orders",
@@ -83,7 +103,8 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     [(model, content)] = fake_agent.calls
     assert model is SolutionRequirementsPlan
     joined_text = " ".join(b["text"] for b in content if "text" in b)
-    assert "Layers" in joined_text and "Pipeline" in joined_text
+    assert "## Data Design Solution" in joined_text and "Layers" in joined_text
+    assert "## Technical Design Solution" in joined_text and "Pipeline" in joined_text
 
     stored_plan = store.get_json(f"workflow/{UC}/plan.json")
     assert stored_plan["requirements"][0]["requirement_id"] == "REQ-1"
@@ -106,16 +127,82 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     assert title == "3. Solution Requirements"
 
 
-def test_blocked_when_anchor_not_configured(tmp_path, cfg, monkeypatch):
-    monkeypatch.setattr("sdlc.agents.analyst.anchors._page_roles", lambda use_case: {})
-    tickets = FakeTicketSystem()
+def _run(store, tickets, cfg, agent=None):
     issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
-
+    doc_source = FakeDocumentSource()
+    doc_source.add_page("Order Fulfilment Performance", page_id="0")
     result = run_solution_requirements(
-        {"use_case": UC, "issue_key": issue.key}, doc_source=FakeDocumentSource(),
-        knowledge_index=FakeKnowledgeIndex(), tickets=tickets, store=FakeObjectStore(), cfg=cfg,
-        dry_run=False, agent=FakeStrandsAgent(SolutionRequirementsPlan(summary="", requirements=[])),
+        {"use_case": UC, "issue_key": issue.key}, doc_source=doc_source,
+        knowledge_index=FakeKnowledgeIndex(), tickets=tickets, store=store, cfg=cfg, dry_run=False,
+        agent=agent or FakeStrandsAgent(SolutionRequirementsPlan(summary="", requirements=[])),
     )
+    return result, tickets.comments[issue.key]
+
+
+def test_blocked_when_step_ticket_has_no_artifact(cfg):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _step_tickets(store, tickets, dds=None, tds=("link", "2"))
+
+    result, comments = _run(store, tickets, cfg)
 
     assert result["status"] == "blocked"
-    assert "data_design_solution" in tickets.comments[issue.key][0]
+    assert "Data Design Solution" in comments[0] and "nothing usable" in comments[0]
+
+
+def test_blocked_when_steps_were_never_created(cfg):
+    result, comments = _run(FakeObjectStore(), FakeTicketSystem(), cfg)
+    assert result["status"] == "blocked" and "workflow start" in comments[0]
+
+
+def test_xlsx_and_pdf_anchors_become_text_and_document_blocks(tmp_path, cfg):
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    wb.active.title = "Mappings"
+    wb.active.append(["src", "tgt"])
+    xlsx = io.BytesIO()
+    wb.save(xlsx)
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("file", "DDS.xlsx", xlsx.getvalue()),
+                  tds=("file", "TDS.pdf", b"%PDF-1.7"))
+    plan = SolutionRequirementsPlan(summary="", requirements=[])
+    agent = FakeStrandsAgent(plan)
+
+    result, _ = _run(store, tickets, cfg, agent)
+
+    assert result["status"] == "planned"
+    [(_, content)] = agent.calls
+    assert "### Mappings\nsrc,tgt" in content[0]["text"]
+    assert content[2]["document"] == {"format": "pdf", "name": "Technical Design Solution",
+                                      "source": {"bytes": b"%PDF-1.7"}}
+
+
+def test_blocked_when_text_over_budget(cfg):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("file", "a.csv", b"x" * 50), tds=("file", "b.csv", b"y" * 50))
+    cfg["analyst"] = {"max_anchor_chars": 60}
+
+    result, comments = _run(store, tickets, cfg)
+
+    assert result["status"] == "blocked"
+    assert "too large" in comments[0] and "Data Design Solution / a.csv: 50" in comments[0]
+
+
+def test_blocked_when_pdf_over_budget(cfg):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("file", "a.pdf", b"x" * 20), tds=("file", "b.csv", b"y"))
+    cfg["analyst"] = {"max_pdf_bytes": 10}
+
+    result, comments = _run(store, tickets, cfg)
+
+    assert result["status"] == "blocked" and "PDF is 20 bytes" in comments[0]
+
+
+def test_read_task_anchors_is_generic_over_roles(tmp_path):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("file", "a.csv", b"a,b"), tds=None)
+
+    [(label, doc)] = read_task_anchors(("data_design_solution",), use_case=UC, tickets=tickets,
+                                        doc_source=FakeDocumentSource(), store=store, data_dir=tmp_path)
+
+    assert label == "Data Design Solution" and doc.sections == [("a.csv", "a,b")]

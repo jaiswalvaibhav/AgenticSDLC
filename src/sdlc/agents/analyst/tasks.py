@@ -12,8 +12,8 @@ from sdlc.agents.analyst.engine import run_solution_requirements
 class AnalystTask:
     id: str
     workflow_step: str  # id in config/workflow.yaml this task automates
-    anchor_roles: tuple[str, ...]  # page_roles.yaml roles read in full
-    retrieval_scope: tuple[str, ...]  # page_roles.yaml roles available via search_knowledge
+    anchor_roles: tuple[str, ...]  # workflow step ids whose step tickets carry an anchor artifact, read in full
+    retrieval_scope: tuple[str, ...]  # step ids / roles available via search_knowledge
     outputs: tuple[str, ...]
     upstream: tuple[str, ...] = field(default_factory=tuple)
     downstream: tuple[str, ...] = field(default_factory=tuple)

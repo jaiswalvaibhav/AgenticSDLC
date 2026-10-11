@@ -20,6 +20,9 @@ jira:
   poll_interval_seconds: 300
   approval_label: sdlc-approved
   reject_label: sdlc-rejected
+analyst:
+  max_anchor_chars: 400000   # ~100k tokens; anchors above this block with a comment, never truncated
+  max_pdf_bytes: 4500000
 orchestrator:
   auto_start_manual_steps: true
   reopen_parent_on_child_reopen: true
