@@ -34,7 +34,15 @@ dev = [
     "graphviz",
     "bedrock-agentcore-starter-toolkit",
     "pillow>=12.3.0",
+    "httpx",  # FastAPI's TestClient
+    {include-group = "ui"},
 ]
+# The workflow UI's backend (backend/sdlc_api) — local use only, never needed by the Lambda
+# or the AgentCore image. Run with `uv run --group ui ...` (see Makefile `api`).
+ui = ["fastapi", "uvicorn"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

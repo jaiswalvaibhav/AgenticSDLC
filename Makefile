@@ -5,7 +5,7 @@
 #   make jira-sync EPIC_KEY=DEMO-1
 .PHONY: setup seed sync search workflow-preview workflow-start analyst-plan analyst-apply \
         sync-progress watch-progress aws-deploy aws-sync aws-destroy \
-        jira-sync jira-kb-create jira-aws-sync jira-search test
+        jira-sync jira-kb-create jira-aws-sync jira-search test api
 
 setup:
 	uv run sdlc setup
@@ -60,3 +60,7 @@ jira-search:
 
 test:
 	uv run pytest
+
+# Workflow UI backend (local only: binds 127.0.0.1, no auth). Run from the repo root.
+api:
+	uv run --group ui uvicorn --factory --app-dir backend --host 127.0.0.1 --port 8000 sdlc_api.app:create_app
