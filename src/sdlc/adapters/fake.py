@@ -1,7 +1,8 @@
 """In-memory fakes for every port, for tests (no AWS/Jira/Confluence network needed)."""
+import hashlib
 import re
 
-from sdlc.ports import Attachment, Chunk, Issue, Page, StatusEvent, TransitionNotAvailable
+from sdlc.ports import Attachment, Chunk, Issue, Page, StatusEvent, TransitionNotAvailable, VersionConflict
 
 
 class FakeDocumentSource:
@@ -261,6 +262,18 @@ class FakeObjectStore:
     def delete(self, key: str, dry_run: bool = True) -> None:
         if not dry_run:
             self._data.pop(key, None)
+
+    def get_bytes_versioned(self, key: str) -> tuple[bytes | None, str | None]:
+        data = self._data.get(key)
+        return data, (hashlib.sha256(data).hexdigest() if data is not None else None)
+
+    def put_bytes_if(self, key: str, data: bytes, version: str | None,
+                      dry_run: bool = True) -> None:
+        if dry_run:
+            return
+        if self.get_bytes_versioned(key)[1] != version:
+            raise VersionConflict(key)
+        self._data[key] = data
 
 
 class FakeKnowledgeIndex:

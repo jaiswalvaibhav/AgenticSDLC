@@ -7,6 +7,8 @@ import json
 import boto3
 from botocore.exceptions import ClientError
 
+from sdlc.ports import VersionConflict
+
 
 class S3ObjectStore:
     def __init__(self, bucket: str, region: str, prefix: str = ""):
@@ -44,3 +46,26 @@ class S3ObjectStore:
             print(f"[dry-run] would delete s3://{self.bucket}/{self._key(key)}")
             return
         self._client.delete_object(Bucket=self.bucket, Key=self._key(key))
+
+    def get_bytes_versioned(self, key: str) -> tuple[bytes | None, str | None]:
+        try:
+            resp = self._client.get_object(Bucket=self.bucket, Key=self._key(key))
+            return resp["Body"].read(), resp["ETag"]
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in ("NoSuchKey", "404"):
+                return None, None
+            raise
+
+    def put_bytes_if(self, key: str, data: bytes, version: str | None,
+                      dry_run: bool = True) -> None:
+        if dry_run:
+            print(f"[dry-run] would write s3://{self.bucket}/{self._key(key)} ({len(data)} bytes)")
+            return
+        condition = {"IfMatch": version} if version else {"IfNoneMatch": "*"}
+        try:
+            self._client.put_object(Bucket=self.bucket, Key=self._key(key), Body=data, **condition)
+        except ClientError as exc:
+            # 412 = ETag mismatch / key already exists; 409 = a racing write (S3 says retry)
+            if exc.response["Error"]["Code"] in ("PreconditionFailed", "ConditionalRequestConflict"):
+                raise VersionConflict(key) from exc
+            raise

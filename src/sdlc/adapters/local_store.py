@@ -1,6 +1,10 @@
 """ObjectStore backed by a local folder. Used when profile=local."""
+import fcntl
+import hashlib
 import json
 from pathlib import Path
+
+from sdlc.ports import VersionConflict
 
 
 class LocalObjectStore:
@@ -35,3 +39,19 @@ class LocalObjectStore:
             print(f"[dry-run] would delete {path}")
             return
         path.unlink(missing_ok=True)
+
+    def get_bytes_versioned(self, key: str) -> tuple[bytes | None, str | None]:
+        data = self.get_bytes(key)
+        return data, (hashlib.sha256(data).hexdigest() if data is not None else None)
+
+    def put_bytes_if(self, key: str, data: bytes, version: str | None,
+                      dry_run: bool = True) -> None:
+        if dry_run:
+            print(f"[dry-run] would write {self._path(key)} ({len(data)} bytes)")
+            return
+        self.root.mkdir(parents=True, exist_ok=True)
+        with open(self.root / ".lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # held across the compare and the write
+            if self.get_bytes_versioned(key)[1] != version:
+                raise VersionConflict(key)
+            self.put_bytes(key, data, dry_run=False)

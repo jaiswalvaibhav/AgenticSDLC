@@ -118,6 +118,11 @@ class StatusSource(Protocol):
     def poll(self) -> list[StatusEvent]: ...
 
 
+class VersionConflict(Exception):
+    """put_bytes_if found the object changed (or created) since get_bytes_versioned read it.
+    Re-read and retry."""
+
+
 class ObjectStore(Protocol):
     """State storage: local folder (profile=local) or S3 (profile=aws)."""
 
@@ -126,6 +131,11 @@ class ObjectStore(Protocol):
     def put_bytes(self, key: str, data: bytes, dry_run: bool = True) -> None: ...
     def get_bytes(self, key: str) -> bytes | None: ...
     def delete(self, key: str, dry_run: bool = True) -> None: ...
+    # Optimistic concurrency, for state several processes write (the mock Jira board).
+    # version is opaque; None means "does not exist yet".
+    def get_bytes_versioned(self, key: str) -> tuple[bytes | None, str | None]: ...
+    def put_bytes_if(self, key: str, data: bytes, version: str | None,
+                      dry_run: bool = True) -> None: ...  # raises VersionConflict
 
 
 class KnowledgeIndex(Protocol):
