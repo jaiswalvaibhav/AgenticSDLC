@@ -1,4 +1,5 @@
 import type { PollerState } from "../types";
+import { Elapsed } from "./AgentActivity";
 
 interface Props {
   poller: PollerState | null;
@@ -32,6 +33,12 @@ export function PollerStatus({ poller, busy, onStart, onStop, onSyncNow }: Props
         <button onClick={onStart} disabled={busy}>
           Start
         </button>
+      )}
+      {poller.cycle_started_at && (
+        <div className="muted note">
+          Orchestrator working for <Elapsed since={poller.cycle_started_at} /> (a step's agent may be running; see
+          the Agent column).
+        </div>
       )}
       {poller.last_error && <div className="error">Last cycle failed: {poller.last_error}</div>}
       {poller.note && <div className="muted note">{poller.note}</div>}

@@ -30,6 +30,19 @@ export type Anchor =
   | { ok: true; kind: "link"; name: string; via: string }
   | { ok: false; reason: string };
 
+// The agent's live status (src/sdlc/agents/activity.py), read fresh on every progress poll.
+export interface Activity {
+  running: boolean;
+  phase: string; // reading_anchors | calling_model | searching_kb | writing_plan | publishing_page | done | blocked | failed
+  detail: string;
+  started_at: string;
+  updated_at: string;
+  model_calls: number;
+  kb_queries: number;
+  outcome: string | null;
+  error: string | null;
+}
+
 export interface ProgressRow {
   step_id: string;
   artifact: string;
@@ -45,6 +58,7 @@ export interface ProgressRow {
   decision_pending: "approve" | "reject" | null;
   plan_ready: boolean | null;
   llm_usage: { calls: number; runs: number } | null;
+  activity: Activity | null;
   recent_comments: string[];
 }
 
@@ -58,6 +72,7 @@ export interface PollerState {
   last_error: string | null;
   cycles: number;
   note: string | null;
+  cycle_started_at: string | null; // set while a poll cycle (which includes any agent run) is in progress
 }
 
 export interface Progress {

@@ -25,7 +25,7 @@ from sdlc.workflow.registry import Step, WorkflowError, WorkflowRegistry
 
 from sdlc_api.mockjira import build_router
 from sdlc_api.poller import Poller
-from sdlc_api.progress import build_progress, remember_selection, reset_run, run_info
+from sdlc_api.progress import build_progress, live_activity, remember_selection, reset_run, run_info
 
 
 class PreviewRequest(BaseModel):
@@ -186,14 +186,16 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         each time); built on first request. POST .../refresh rebuilds it."""
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
-        return {**(snapshots.get(use_case) or refresh(use_case, profile or cfg["profile"])),
+        snapshot = snapshots.get(use_case) or refresh(use_case, profile or cfg["profile"])
+        activity = live_activity(store or object_store(run_cfg(use_case, profile or cfg["profile"])), use_case)
+        return {**snapshot, "steps": [{**row, "activity": activity.get(row["step_id"])} for row in snapshot["steps"]],
                 "poller": poller.snapshot()}
 
     @app.post("/api/runs/{use_case}/refresh")
     def refresh_progress(use_case: str, profile: str | None = None) -> dict:
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
-        return {**refresh(use_case, profile or cfg["profile"]), "poller": poller.snapshot()}
+        return {**refresh(use_case, profile or cfg["profile"]), "poller": poller.snapshot()}  # no activity: the next poll adds it
 
     @app.post("/api/runs/{use_case}/steps/{step_id}/rerun")
     def rerun(use_case: str, step_id: str, profile: str | None = None) -> dict:

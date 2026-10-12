@@ -1,4 +1,5 @@
 import type { Anchor, Progress, ProgressRow } from "../types";
+import { AgentActivity } from "./AgentActivity";
 import { Clamp } from "./Clamp";
 
 interface Props {
@@ -26,6 +27,7 @@ function artifactCell(row: ProgressRow) {
 }
 
 function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide: Props["onDecide"], onRerun: Props["onRerun"]) {
+  if (row.activity?.running) return <AgentActivity activity={row.activity} />;
   if (row.run_state === "awaiting_approval" && row.decision_pending) {
     return row.decision_pending === "approve"
       ? "approving: creating the Stories and sub-tasks in Jira… (can take a minute)"
@@ -52,7 +54,7 @@ function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide
       </>
     );
   }
-  if (row.run_state === "regenerating") return "regenerating the plan…";
+  if (row.run_state === "regenerating") return "regenerating the plan…"; // until its first activity poll
   if (row.run_state === "applied") return "applied";
   if (row.run_state === "rejected" || row.run_state === "ready") {
     return (
@@ -66,6 +68,7 @@ function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide
     );
   }
   if (row.run_state === "rerun_requested") return "re-run requested, starting…";
+  if (row.activity) return <AgentActivity activity={row.activity} />; // a failed or blocked run
   return row.plan_ready ? "plan exists" : "";
 }
 

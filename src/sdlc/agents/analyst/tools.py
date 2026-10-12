@@ -2,12 +2,15 @@
 tool — that one hardcodes vectorSearchConfiguration, which a Managed Knowledge Base
 doesn't support (see docs/DECISIONS.md, Phase 0). Scoped to one use_case so other use cases
 in the same KB never leak into results."""
+from typing import Callable
+
 from strands import tool
 
 from sdlc.ports import KnowledgeIndex
 
 
-def make_search_knowledge_tool(knowledge_index: KnowledgeIndex, use_case: str):
+def make_search_knowledge_tool(knowledge_index: KnowledgeIndex, use_case: str,
+                                on_search: Callable[[str], None] | None = None):
     @tool
     def search_knowledge(query: str) -> str:
         """Search supporting Confluence pages for this use case: stakeholder
@@ -19,6 +22,8 @@ def make_search_knowledge_tool(knowledge_index: KnowledgeIndex, use_case: str):
         Args:
             query: a natural-language search query.
         """
+        if on_search:
+            on_search(query)
         try:
             chunks = knowledge_index.search(query, use_case=use_case, top_k=5)
         except Exception as exc:  # a broken KB degrades the run (the model works from the documents given), not fails it

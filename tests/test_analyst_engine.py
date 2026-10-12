@@ -306,3 +306,29 @@ def test_the_model_is_told_about_the_ticket_sections_and_which_are_checklists():
         assert field in schema["required"]  # required, so the model can't skip them
     for field in ("acceptance_criteria", "definition_of_done", "test_coverage"):
         assert "checklist" in schema["properties"][field]["description"].lower()
+
+
+def test_the_runs_live_status_ends_done_blocked_or_failed(tmp_path, cfg):
+    from sdlc.agents.activity import activity_key
+
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _step_tickets(store, tickets, dds=None, tds=("link", "2"))
+    _run(store, tickets, cfg, step_id="s")
+    blocked = store.get_json(activity_key(UC, "s"))
+    assert blocked["running"] is False and blocked["outcome"] == "blocked" and "Data Design Solution" in blocked["error"]
+
+    class Boom:
+        def __call__(self, content, structured_output_model):
+            raise RuntimeError("model exploded")
+
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>L</h2><p>x</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>P</h2><p>y</p>")
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    with pytest.raises(RuntimeError):
+        _run(store, tickets, cfg, agent=Boom(), step_id="s")
+    failed = store.get_json(activity_key(UC, "s"))
+    assert failed["outcome"] == "failed" and failed["error"] == "RuntimeError: model exploded"
+
+    _run(store, tickets, cfg, step_id="s")
+    done = store.get_json(activity_key(UC, "s"))
+    assert done["phase"] == "done" and done["running"] is False

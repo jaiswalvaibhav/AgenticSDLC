@@ -28,6 +28,7 @@ from pathlib import Path
 
 import yaml
 
+from sdlc.agents.activity import RunRecorder
 from sdlc.agents.analyst import anchors
 from sdlc.agents.analyst.anchors import AnchorResult, DocumentRef, ImageRef, read_anchor
 from sdlc.agents.analyst.plan_schema import SolutionRequirementsPlan
@@ -130,7 +131,8 @@ def _build_local_llm_model(provider: str, confirmed: bool = False):
     raise ValueError(f"Unknown EXTERNAL_LLM_PROVIDER={provider!r} (expected 'anthropic' or 'gemini')")
 
 
-def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg: dict):
+def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg: dict,
+                       recorder: RunRecorder | None = None):
     import os
 
     from strands import Agent
@@ -160,8 +162,10 @@ def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg
         model = BedrockModel(model_id=model_id, region_name=cfg["aws"]["region"])
 
     # no KnowledgeIndex = no search_knowledge tool and a prompt that doesn't mention it
-    tools = [make_search_knowledge_tool(knowledge_index, use_case)] if knowledge_index else []
-    return Agent(model=model, tools=tools, system_prompt=system_prompt(kb=knowledge_index is not None))
+    tools = [make_search_knowledge_tool(knowledge_index, use_case, on_search=recorder and recorder.on_search)
+             ] if knowledge_index else []
+    return Agent(model=model, tools=tools, system_prompt=system_prompt(kb=knowledge_index is not None),
+                 hooks=[recorder.hooks()] if recorder else None)
 
 
 def _content_blocks(anchors: list[tuple[str, AnchorResult]]) -> list[dict]:
@@ -304,7 +308,25 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
                                knowledge_index: KnowledgeIndex | None, tickets: TicketSystem,
                                store: ObjectStore, cfg: dict, dry_run: bool = True,
                                agent=None) -> dict:
+    """Runs the task and keeps its live status (activity.py) up to date for the UI."""
+    recorder = RunRecorder(store, context["use_case"], context.get("step_id"), dry_run)
+    try:
+        result = _run_solution_requirements(context, doc_source=doc_source, knowledge_index=knowledge_index,
+                                             tickets=tickets, store=store, cfg=cfg, dry_run=dry_run,
+                                             agent=agent, recorder=recorder)
+    except Exception as exc:  # the orchestrator reports it on the ticket; this is for the UI
+        recorder.finish("failed", f"{type(exc).__name__}: {exc}")
+        raise
+    recorder.finish(result["status"], result.get("reason"))
+    return result
+
+
+def _run_solution_requirements(context: dict, *, doc_source: DocumentSource,
+                                knowledge_index: KnowledgeIndex | None, tickets: TicketSystem,
+                                store: ObjectStore, cfg: dict, dry_run: bool, agent,
+                                recorder: RunRecorder) -> dict:
     use_case, issue_key = context["use_case"], context["issue_key"]
+    recorder.phase("reading_anchors", "reading the DDS and TDS")
     data_dir = cfg["data_dir"]
 
     from sdlc.agents.analyst.tasks import TASKS  # lazy: tasks imports this module
@@ -325,14 +347,17 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
                             dry_run=dry_run)
         return {"status": "blocked", "reason": reason}
 
-    agent = agent or _build_real_agent(knowledge_index, use_case, cfg)
+    recorder.phase("calling_model", "preparing the model call")
+    agent = agent or _build_real_agent(knowledge_index, use_case, cfg, recorder)
     result = agent(_content_blocks(anchor_docs), structured_output_model=SolutionRequirementsPlan)
     _record_llm_usage(result, store=store, use_case=use_case, step_id=context.get("step_id"), dry_run=dry_run)
     plan = result.structured_output
     plan.use_case = use_case
 
+    recorder.phase("writing_plan")
     store.put_json(f"workflow/{use_case}/plan.json", plan.model_dump(), dry_run=dry_run)
     store.put_bytes(f"workflow/{use_case}/plan.md", _plan_markdown(plan).encode(), dry_run=dry_run)
+    recorder.phase("publishing_page", "publishing the plan to Confluence")
     page = _publish_plan_page(plan, use_case=use_case, doc_source=doc_source, dry_run=dry_run)
     record_page(store, use_case, page, issue_key, dry_run=dry_run)
 

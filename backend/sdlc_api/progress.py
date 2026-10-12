@@ -4,8 +4,9 @@ plan.json) and ticket_anchors' artifact check, so what the UI shows is exactly w
 orchestrator and the analyst agent will see. Costs get_issue + get_remote_links per step
 (plus the anchor check for steps that feed an automated step) — hence the caller caches it.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from sdlc.agents.activity import activity_key
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, AttachmentSource, pick_anchor_source
 from sdlc.ports import ObjectStore, TicketSystem
 from sdlc.wiring import jira_browse_url
@@ -51,11 +52,31 @@ def reset_run(store: ObjectStore, use_case: str) -> None:
     tickets are not touched: a later trigger re-adopts same-project tickets by their marker
     labels (workflow_start), and creates new ones in a different project. Leaves the Jira
     status checkpoint alone — it only bounds how far back the poller looks."""
+    for step_id in orchestrator._steps_map(store, use_case):
+        store.delete(activity_key(use_case, step_id), dry_run=False)
     for key in (f"workflow/{use_case}/steps.json", f"workflow/{use_case}/run_state.json",
                 f"workflow/{use_case}/plan.json", f"workflow/{use_case}/plan.md",
                 f"workflow/{use_case}/traceability.json", f"workflow/{use_case}/llm_usage.json",
                 selection_key(use_case)):
         store.delete(key, dry_run=False)
+
+
+STALE_AFTER = timedelta(minutes=15)  # a "running" run silent this long died with its process
+
+
+def live_activity(store: ObjectStore, use_case: str) -> dict[str, dict]:
+    """step_id -> the agent's live status (agents/activity.py). Store reads only, no Jira, so the
+    UI can show it on every poll even though the rest of the snapshot is cached."""
+    out = {}
+    for step_id in orchestrator._steps_map(store, use_case):
+        doc = store.get_json(activity_key(use_case, step_id))
+        if not doc:
+            continue
+        if doc["running"] and datetime.now(timezone.utc) - datetime.fromisoformat(doc["updated_at"]) > STALE_AFTER:
+            doc = {**doc, "running": False, "phase": "failed", "outcome": "failed",
+                   "error": "The run stopped reporting (the backend or agent probably died). Re-run it."}
+        out[step_id] = doc
+    return out
 
 
 def _anchor(step_id: str, key: str, tickets: TicketSystem) -> dict:

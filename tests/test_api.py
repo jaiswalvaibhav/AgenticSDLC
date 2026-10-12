@@ -457,3 +457,24 @@ def test_progress_exposes_the_reject_label_and_the_regenerating_state(live, stor
 
     assert body["reject_label"] == "sdlc-rejected"
     assert {r["step_id"]: r["run_state"] for r in body["steps"]}["develop_solution_requirements"] == "regenerating"
+
+
+def test_progress_shows_the_agents_live_activity_without_a_rebuild(live, tickets, store):
+    from datetime import datetime, timedelta, timezone
+    from sdlc.agents.activity import activity_key
+
+    steps = _run(live).json()["steps"]
+    live.get(f"/api/runs/{UC}/progress")  # builds and caches the snapshot
+    now = datetime.now(timezone.utc)
+    doc = {"running": True, "phase": "calling_model", "detail": "model call 2", "started_at": now.isoformat(),
+           "updated_at": now.isoformat(), "model_calls": 2, "kb_queries": 1, "outcome": None, "error": None}
+    store.put_json(activity_key(UC, "develop_solution_requirements"), doc, dry_run=False)
+
+    rows = {r["step_id"]: r for r in live.get(f"/api/runs/{UC}/progress").json()["steps"]}
+    assert rows["develop_solution_requirements"]["activity"] == doc
+    assert rows["data_design_solution"]["activity"] is None
+
+    old = (now - timedelta(minutes=30)).isoformat()
+    store.put_json(activity_key(UC, "develop_solution_requirements"), {**doc, "updated_at": old}, dry_run=False)
+    stale = {r["step_id"]: r for r in live.get(f"/api/runs/{UC}/progress").json()["steps"]}["develop_solution_requirements"]["activity"]
+    assert stale["running"] is False and stale["outcome"] == "failed" and "stopped reporting" in stale["error"]

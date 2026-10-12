@@ -24,7 +24,7 @@ class Poller:
         self.state_store, self.interval = state_store, interval
         self.run: dict | None = None  # {use_case, profile, external_llm_confirmed} while active
         self._status = {"last_sync_at": None, "last_result": None, "last_error": None,
-                        "cycles": 0, "note": None}
+                        "cycles": 0, "note": None, "cycle_started_at": None}
         self._cycle_lock = threading.Lock()  # one cycle at a time, even across a restart
         self._guard = threading.Lock()  # start/stop bookkeeping
         self._stop: threading.Event | None = None
@@ -107,12 +107,13 @@ class Poller:
             if stop.is_set():
                 return
             error = result = None
+            self._status["cycle_started_at"] = datetime.now(timezone.utc).isoformat()
             try:
                 result = self.sync({**self.cfg, **settings}, dry_run=False)
                 self.on_cycle(settings["use_case"], settings["profile"])
             except Exception as exc:  # recorded for the UI; the loop must outlive one bad cycle
                 error = f"{type(exc).__name__}: {exc}"
-            self._status.update(last_sync_at=datetime.now(timezone.utc).isoformat(),
+            self._status.update(last_sync_at=datetime.now(timezone.utc).isoformat(), cycle_started_at=None,
                                 cycles=self._status["cycles"] + 1, last_error=error)
             if error is None:
                 self._status.update(last_result=result, note=None)
