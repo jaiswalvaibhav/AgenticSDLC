@@ -37,9 +37,7 @@ textarea { width: 100%; resize: vertical; }
 .mj-points, .mj-pill { min-width: 22px; text-align: center; font-size: 11px; border-radius: 10px; background: var(--border); padding: 0 6px; }
 .mj-points:empty { visibility: hidden; }
 
-.mj-type { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 3px; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; background: #2684ff; }
-.mj-type.epic { background: #904ee2; } .mj-type.story { background: #36b37e; } .mj-type.bug { background: #e5493a; }
-.mj-type.task { background: #4bade8; } .mj-type.subtask { background: #6b9fd8; }
+.mj-type { display: inline-block; flex-shrink: 0; vertical-align: middle; }
 .mj-avatar { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
 .mj-avatar.none { background: var(--border); color: var(--muted); }
 .mj-priority { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: 700; color: #fff; background: #998dd9; }

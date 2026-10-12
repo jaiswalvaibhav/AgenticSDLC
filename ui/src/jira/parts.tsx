@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { BoardView, IssueSummary } from "./types";
 
 export const isSubtask = (i: { issuetype: string }) => ["subtask", "sub-task"].includes(i.issuetype.toLowerCase());
@@ -19,14 +20,33 @@ export function Lozenge({ board, status }: { board: Pick<BoardView, "statuses">;
   return <span className={`mj-lozenge ${statusCategory(board.statuses, status)}`}>{status}</span>;
 }
 
-const TYPE_LETTER: Record<string, string> = { epic: "E", story: "S", task: "T", bug: "B", subtask: "s", "sub-task": "s" };
+// Issue-type icons drawn like Jira's (own SVGs, same colours and glyphs): a coloured rounded square with a white mark.
+const TYPE_ICONS: Record<string, { color: string; mark: ReactNode }> = {
+  epic: { color: "#904ee2", mark: <polygon points="9.2,2.5 4.8,9.1 7.4,9.1 6.8,13.5 11.2,6.9 8.6,6.9" fill="#fff" /> },
+  story: { color: "#63ba3c", mark: <path d="M5 3h6v10l-3-2.4L5 13z" fill="#fff" /> },
+  task: { color: "#4bade8", mark: <polyline points="4.6,8.3 7,10.7 11.4,5.6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /> },
+  bug: { color: "#e5493a", mark: <circle cx="8" cy="8" r="3.4" fill="#fff" /> },
+  subtask: {
+    color: "#4bade8",
+    mark: (
+      <>
+        <rect x="3.8" y="3.8" width="3.8" height="3.8" rx="0.6" fill="#fff" />
+        <rect x="8.4" y="8.4" width="3.8" height="3.8" rx="0.6" fill="#fff" />
+        <path d="M5.7 7.6v2.7h2.7" fill="none" stroke="#fff" strokeWidth="1.3" />
+      </>
+    ),
+  },
+};
 
 export function TypeIcon({ type }: { type: string }) {
-  const lower = type.toLowerCase();
+  const key = type.toLowerCase().replace("-", "");
+  const icon = TYPE_ICONS[key] ?? TYPE_ICONS.task; // a type we have no drawing for looks like a task
   return (
-    <span className={`mj-type ${lower.replace("-", "")}`} title={type}>
-      {TYPE_LETTER[lower] ?? type[0]}
-    </span>
+    <svg className="mj-type" viewBox="0 0 16 16" width="18" height="18" role="img" aria-label={type}>
+      <title>{type}</title>
+      <rect width="16" height="16" rx="3" fill={icon.color} />
+      {icon.mark}
+    </svg>
   );
 }
 
