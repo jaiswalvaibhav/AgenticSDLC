@@ -6,7 +6,7 @@ orchestrator and the analyst agent will see. Costs get_issue + get_remote_links 
 """
 from datetime import datetime, timedelta, timezone
 
-from sdlc.agents.activity import activity_key
+from sdlc.agents.activity import activity_key, delete_runs
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, AttachmentSource, pick_anchor_source
 from sdlc.ports import ObjectStore, TicketSystem
 from sdlc.wiring import jira_browse_url
@@ -54,6 +54,7 @@ def reset_run(store: ObjectStore, use_case: str) -> None:
     status checkpoint alone — it only bounds how far back the poller looks."""
     for step_id in orchestrator._steps_map(store, use_case):
         store.delete(activity_key(use_case, step_id), dry_run=False)
+        delete_runs(store, use_case, step_id)
     for key in (f"workflow/{use_case}/steps.json", f"workflow/{use_case}/run_state.json",
                 f"workflow/{use_case}/plan.json", f"workflow/{use_case}/plan.md",
                 f"workflow/{use_case}/traceability.json", f"workflow/{use_case}/llm_usage.json",

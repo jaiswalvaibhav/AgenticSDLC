@@ -162,7 +162,8 @@ def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg
         model = BedrockModel(model_id=model_id, region_name=cfg["aws"]["region"])
 
     # no KnowledgeIndex = no search_knowledge tool and a prompt that doesn't mention it
-    tools = [make_search_knowledge_tool(knowledge_index, use_case, on_search=recorder and recorder.on_search)
+    tools = [make_search_knowledge_tool(knowledge_index, use_case, on_search=recorder and recorder.on_search,
+                                         on_result=recorder and recorder.on_search_result)
              ] if knowledge_index else []
     return Agent(model=model, tools=tools, system_prompt=system_prompt(kb=knowledge_index is not None),
                  hooks=[recorder.hooks()] if recorder else None)
@@ -348,11 +349,16 @@ def _run_solution_requirements(context: dict, *, doc_source: DocumentSource,
         return {"status": "blocked", "reason": reason}
 
     recorder.phase("calling_model", "preparing the model call")
+    content = _content_blocks(anchor_docs)
+    recorder.record_input(system_prompt(kb=knowledge_index is not None), content, knowledge_index is not None)
     agent = agent or _build_real_agent(knowledge_index, use_case, cfg, recorder)
-    result = agent(_content_blocks(anchor_docs), structured_output_model=SolutionRequirementsPlan)
+    result = agent(content, structured_output_model=SolutionRequirementsPlan)
     _record_llm_usage(result, store=store, use_case=use_case, step_id=context.get("step_id"), dry_run=dry_run)
     plan = result.structured_output
     plan.use_case = use_case
+    recorder.result({"summary": plan.summary, "requirement_count": len(plan.requirements),
+                     "usage": dict(getattr(getattr(result, "metrics", None), "accumulated_usage", None) or {}),
+                     "plan": plan.model_dump()})
 
     recorder.phase("writing_plan")
     store.put_json(f"workflow/{use_case}/plan.json", plan.model_dump(), dry_run=dry_run)

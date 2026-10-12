@@ -7,6 +7,7 @@ Local use only: bind 127.0.0.1 (see Makefile `api`); there is no auth. Secrets n
 leave this process — routes return only the specific fields they name, never cfg.
 """
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -15,9 +16,10 @@ import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from sdlc.agents.activity import list_runs, read_trace
 from sdlc.config import load_config
 from sdlc.sync_once import sync_once
-from sdlc.wiring import confluence_client, jira_client, jira_mode, jira_project_key, object_store
+from sdlc.wiring import confluence_client, jira_client, jira_mode, jira_project_key, kb_enabled, object_store
 from sdlc.workflow import orchestrator
 from sdlc.workflow.cleanup import cleanup_run
 from sdlc.workflow.pages import delete_pages, recorded_pages
@@ -97,7 +99,7 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         yield
         poller.shutdown()
 
-    app = FastAPI(title="Agentic SDLC workflow UI", lifespan=lifespan)
+    app = FastAPI(title="Agentic Data SDLC workflow UI", lifespan=lifespan)
     app.state.poller = poller
 
     if jira_mode(cfg) == "mock":
@@ -134,6 +136,7 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
             "default_profile": cfg["profile"],
             "external_llm_provider": os.environ.get("EXTERNAL_LLM_PROVIDER") or None,
             "auto_confirm_external_llm": auto_confirm,
+            "knowledge_base": dict(zip(("enabled", "reason"), kb_enabled(cfg))),
             "jira_mode": jira_mode(cfg),
             "jira_project_key": jira_project_key(cfg),
             "jira_base_url": cfg["atlassian"]["base_url"],
@@ -196,6 +199,28 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
         return {**refresh(use_case, profile or cfg["profile"]), "poller": poller.snapshot()}  # no activity: the next poll adds it
+
+    def agent_run_store(use_case: str, step_id: str, profile: str | None):
+        if use_case not in _use_cases():
+            raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
+        if step_id not in {s.id for s in registry.all_steps()}:
+            raise HTTPException(status_code=404, detail=f"unknown step: {step_id}")
+        return store or object_store(run_cfg(use_case, profile or cfg["profile"]))
+
+    @app.get("/api/runs/{use_case}/steps/{step_id}/agent-runs")
+    def agent_runs(use_case: str, step_id: str, profile: str | None = None) -> dict:
+        """The step's recorded agent runs, newest first (what the UI's "View log" lists)."""
+        return {"runs": list_runs(agent_run_store(use_case, step_id, profile), use_case, step_id)}
+
+    @app.get("/api/runs/{use_case}/steps/{step_id}/agent-runs/{run_id}")
+    def agent_run(use_case: str, step_id: str, run_id: str, profile: str | None = None) -> dict:
+        """One run's trace: what the model was sent, each response, each knowledge-base query."""
+        if not re.fullmatch(r"\d{8}T\d{12}Z", run_id):
+            raise HTTPException(status_code=404, detail="unknown run")
+        trace = read_trace(agent_run_store(use_case, step_id, profile), use_case, step_id, run_id)
+        if trace is None:
+            raise HTTPException(status_code=404, detail="unknown run")
+        return trace
 
     @app.post("/api/runs/{use_case}/steps/{step_id}/rerun")
     def rerun(use_case: str, step_id: str, profile: str | None = None) -> dict:

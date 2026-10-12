@@ -8,6 +8,7 @@ interface Props {
   onRefresh: () => void;
   onDecide: (row: ProgressRow, decision: "approve" | "reject") => void;
   onRerun: (row: ProgressRow) => void;
+  onViewLog: (row: ProgressRow) => void;
 }
 
 function artifactCell(row: ProgressRow) {
@@ -72,7 +73,7 @@ function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide
   return row.plan_ready ? "plan exists" : "";
 }
 
-export function ProgressTable({ progress, busy, onRefresh, onDecide, onRerun }: Props) {
+export function ProgressTable({ progress, busy, onRefresh, onDecide, onRerun, onViewLog }: Props) {
   return (
     <section className="panel">
       <div className="panel-head">
@@ -105,6 +106,13 @@ export function ProgressTable({ progress, busy, onRefresh, onDecide, onRerun }: 
                   {row.llm_usage && (
                     <div className="muted small">
                       LLM called {row.llm_usage.calls}× · {row.llm_usage.runs} run{row.llm_usage.runs === 1 ? "" : "s"}
+                    </div>
+                  )}
+                  {row.role === "automated" && (
+                    <div>
+                      <button className="link-button" onClick={() => onViewLog(row)}>
+                        View agent log
+                      </button>
                     </div>
                   )}
                 </td>

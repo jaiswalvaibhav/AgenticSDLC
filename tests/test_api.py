@@ -36,7 +36,8 @@ def test_meta_lists_use_cases_and_never_leaks_secrets(client, monkeypatch):
     assert response.json() == {
         "use_cases": ["demo_order_fulfilment"], "default_use_case": "demo_order_fulfilment",
         "profiles": ["local"], "default_profile": "local", "external_llm_provider": None,
-        "auto_confirm_external_llm": False, "jira_mode": "real", "jira_project_key": "DEMO", "jira_base_url": "https://x.atlassian.net"}
+        "auto_confirm_external_llm": False,
+        "knowledge_base": {"enabled": False, "reason": "aws.knowledge_base_id is not set"}, "jira_mode": "real", "jira_project_key": "DEMO", "jira_base_url": "https://x.atlassian.net"}
 
 
 def test_meta_offers_aws_only_once_the_agent_runtime_is_deployed(cfg, monkeypatch):
@@ -478,3 +479,26 @@ def test_progress_shows_the_agents_live_activity_without_a_rebuild(live, tickets
     store.put_json(activity_key(UC, "develop_solution_requirements"), {**doc, "updated_at": old}, dry_run=False)
     stale = {r["step_id"]: r for r in live.get(f"/api/runs/{UC}/progress").json()["steps"]}["develop_solution_requirements"]["activity"]
     assert stale["running"] is False and stale["outcome"] == "failed" and "stopped reporting" in stale["error"]
+
+
+def test_agent_runs_are_listed_and_a_trace_can_be_read(live, store):
+    from sdlc.agents.activity import RunRecorder
+
+    steps = _run(live).json()["steps"]
+    recorder = RunRecorder(store, UC, "develop_solution_requirements", dry_run=False)
+    recorder.record_input("SYSTEM", [{"text": "hello"}], kb_enabled=False)
+    recorder.finish("planned")
+    base = f"/api/runs/{UC}/steps/develop_solution_requirements/agent-runs"
+
+    [run] = live.get(base).json()["runs"]
+    assert run["run_id"] == recorder.run_id and run["outcome"] == "planned"
+    trace = live.get(f"{base}/{recorder.run_id}").json()
+    assert trace["system_prompt"] == "SYSTEM" and trace["input"] == [{"kind": "text", "text": "hello"}]
+
+    assert live.get(f"{base}/20200101T000000000000Z").status_code == 404
+    assert live.get(f"{base}/..%2Fsteps").status_code == 404  # not a run id
+    assert live.get(f"/api/runs/{UC}/steps/nope/agent-runs").status_code == 404
+    assert live.get("/api/runs/nope/steps/develop_solution_requirements/agent-runs").status_code == 404
+
+    live.post(f"/api/runs/{UC}/reset")
+    assert live.get(base).json() == {"runs": []}

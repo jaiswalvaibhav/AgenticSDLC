@@ -10,7 +10,8 @@ from sdlc.ports import KnowledgeIndex
 
 
 def make_search_knowledge_tool(knowledge_index: KnowledgeIndex, use_case: str,
-                                on_search: Callable[[str], None] | None = None):
+                                on_search: Callable[[str], None] | None = None,
+                                on_result: Callable[[list, str | None], None] | None = None):
     @tool
     def search_knowledge(query: str) -> str:
         """Search supporting Confluence pages for this use case: stakeholder
@@ -27,7 +28,11 @@ def make_search_knowledge_tool(knowledge_index: KnowledgeIndex, use_case: str,
         try:
             chunks = knowledge_index.search(query, use_case=use_case, top_k=5)
         except Exception as exc:  # a broken KB degrades the run (the model works from the documents given), not fails it
+            if on_result:
+                on_result([], f"{type(exc).__name__}: {exc}")
             return f"Knowledge base unavailable ({type(exc).__name__}: {exc}). Continue from the documents given."
+        if on_result:
+            on_result(chunks, None)
         if not chunks:
             return "No results."
         return "\n\n".join(

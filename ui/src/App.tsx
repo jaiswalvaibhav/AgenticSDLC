@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import * as api from "./api";
+import { AgentLog } from "./components/AgentLog";
 import { PollerStatus } from "./components/PollerStatus";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { ProgressTable } from "./components/ProgressTable";
@@ -30,6 +31,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [freshOpen, setFreshOpen] = useState(false);
   const [freshError, setFreshError] = useState<string | null>(null);
+  const [logRow, setLogRow] = useState<ProgressRow | null>(null);
 
   useEffect(() => {
     Promise.all([api.getMeta(), api.getSteps()])
@@ -191,7 +193,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Agentic SDLC workflow</h1>
+        <h1>Agentic Data SDLC workflow</h1>
         {meta && (
           <div className="controls">
             <label>
@@ -202,6 +204,10 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <span className={`badge ${meta.knowledge_base.enabled ? "on" : "off"}`}
+              title={meta.knowledge_base.enabled ? "The analyst can search the knowledge base" : `The analyst runs without the knowledge base: ${meta.knowledge_base.reason}`}>
+              KB: {meta.knowledge_base.enabled ? "on" : "off"}
+            </span>
             <span className="profiles">
               {["local", "aws"].map((p) => {
                 const available = meta.profiles.includes(p);
@@ -240,8 +246,12 @@ export default function App() {
 
       {progressError && <div className="banner error">Progress unavailable: {progressError}</div>}
       <RunBanner info={runInfo} busy={busy} onStartFresh={() => { setFreshError(null); setFreshOpen(true); }} />
-      <ProgressTable progress={progress} busy={busy} onRefresh={refresh} onDecide={decide} onRerun={rerun} />
+      <ProgressTable progress={progress} busy={busy} onRefresh={refresh} onDecide={decide} onRerun={rerun} onViewLog={setLogRow} />
 
+      {logRow && (
+        <AgentLog useCase={useCase} profile={profile} stepId={logRow.step_id} title={logRow.artifact}
+          onClose={() => setLogRow(null)} />
+      )}
       {freshOpen && meta && runInfo?.exists && (
         <StartFreshDialog info={runInfo} jiraMode={meta.jira_mode} busy={busy} error={freshError}
           onCancel={() => setFreshOpen(false)} onConfirm={startFresh} />

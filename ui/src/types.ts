@@ -6,6 +6,7 @@ export interface Meta {
   default_profile: string;
   external_llm_provider: string | null;
   auto_confirm_external_llm: boolean;
+  knowledge_base: { enabled: boolean; reason: string }; // reason is empty when enabled
   jira_mode: "mock" | "real";
   jira_project_key: string;
   jira_base_url: string;
@@ -33,6 +34,7 @@ export type Anchor =
 // The agent's live status (src/sdlc/agents/activity.py), read fresh on every progress poll.
 export interface Activity {
   running: boolean;
+  run_id: string; // the trace to open (AgentRun)
   phase: string; // reading_anchors | calling_model | searching_kb | writing_plan | publishing_page | done | blocked | failed
   detail: string;
   started_at: string;
@@ -114,4 +116,56 @@ export interface ResetResult {
   deleted: string[]; // mock Jira tickets deleted (empty with real Jira)
   page_errors: Record<string, string>; // Confluence pages that could not be deleted
   poller: PollerState;
+}
+
+// A run's recorded trace (src/sdlc/agents/activity.py).
+export type TraceBlock =
+  | { kind: "text"; text: string }
+  | { kind: "tool_use"; name: string; input: unknown }
+  | { kind: "image" | "document"; format: string | null; name: string | null; bytes: number }
+  | { kind: string };
+
+export interface KbChunk {
+  title: string;
+  score: number;
+  url: string;
+  s3_uri: string;
+  text: string;
+}
+
+export type TraceEvent =
+  | {
+      type: "model_call";
+      n: number;
+      started_at: string;
+      ended_at: string | null;
+      stop_reason: string | null;
+      error: string | null;
+      content: TraceBlock[];
+    }
+  | { type: "kb_search"; query: string; started_at: string; ended_at: string | null; chunks: KbChunk[]; error: string | null };
+
+export interface AgentRunSummary {
+  run_id: string;
+  started_at: string;
+  outcome: string | null; // null while running
+  model_calls: number;
+  kb_queries: number;
+}
+
+export interface AgentTrace {
+  run_id: string;
+  started_at: string;
+  outcome: string | null;
+  error: string | null;
+  kb_enabled: boolean | null;
+  system_prompt: string | null;
+  input: TraceBlock[];
+  events: TraceEvent[];
+  result: {
+    summary: string;
+    requirement_count: number;
+    usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+    plan: unknown;
+  } | null;
 }

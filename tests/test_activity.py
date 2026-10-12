@@ -56,3 +56,56 @@ def test_the_hook_provider_is_accepted_by_a_real_strands_agent():
     from strands import Agent
     recorder = RunRecorder(FakeObjectStore(), UC, "step", dry_run=False)
     Agent(model="fake", hooks=[recorder.hooks()], callback_handler=None)  # no model call; construction only
+
+
+def test_the_trace_keeps_the_input_each_response_and_each_kb_query_with_its_chunks():
+    from sdlc.agents.activity import list_runs, read_trace
+    from sdlc.ports import Chunk
+
+    store = FakeObjectStore()
+    recorder = RunRecorder(store, UC, "step", dry_run=False)
+    recorder.record_input("SYSTEM", [
+        {"text": "## DDS\n\nLayers"},
+        {"image": {"format": "png", "source": {"bytes": b"12345"}}},
+        {"document": {"format": "pdf", "name": "TDS", "source": {"bytes": b"123"}}}], kb_enabled=True)
+    recorder.model_call()
+    recorder.model_response({"content": [{"text": "Let me look that up"},
+                                          {"toolUse": {"name": "search_knowledge", "input": {"query": "orders"}}}]},
+                            "tool_use", None)
+    recorder.on_search("orders")
+    recorder.on_search_result([Chunk(text="Order grain", score=0.9, page_title="SR", page_url="u", s3_uri="s3://x")])
+    recorder.model_call()
+    recorder.model_response(None, None, RuntimeError("throttled"))
+    recorder.result({"summary": "S", "requirement_count": 1})
+    recorder.finish("planned")
+
+    trace = read_trace(store, UC, "step", recorder.run_id)
+    assert trace["system_prompt"] == "SYSTEM" and trace["kb_enabled"] is True
+    assert trace["input"] == [{"kind": "text", "text": "## DDS\n\nLayers"},
+                              {"kind": "image", "format": "png", "name": None, "bytes": 5},
+                              {"kind": "document", "format": "pdf", "name": "TDS", "bytes": 3}]
+    first, search, second = trace["events"]
+    assert first["content"] == [{"kind": "text", "text": "Let me look that up"},
+                                {"kind": "tool_use", "name": "search_knowledge", "input": {"query": "orders"}}]
+    assert first["stop_reason"] == "tool_use"
+    assert search["query"] == "orders" and search["chunks"] == [
+        {"title": "SR", "score": 0.9, "url": "u", "s3_uri": "s3://x", "text": "Order grain"}]
+    assert second["error"] == "RuntimeError: throttled"
+    assert trace["outcome"] == "planned" and trace["result"]["requirement_count"] == 1
+    assert list_runs(store, UC, "step") == [{
+        "run_id": recorder.run_id, "started_at": trace["started_at"], "outcome": "planned",
+        "model_calls": 2, "kb_queries": 1}]
+
+
+def test_only_the_newest_runs_are_kept():
+    from sdlc.agents.activity import TRACE_KEEP, list_runs, read_trace
+    store = FakeObjectStore()
+    recorders = []
+    for _ in range(TRACE_KEEP + 2):
+        recorder = RunRecorder(store, UC, "step", dry_run=False)
+        recorder.finish("planned")
+        recorders.append(recorder)
+    kept = [r["run_id"] for r in list_runs(store, UC, "step")]
+    assert kept == [r.run_id for r in reversed(recorders)][:TRACE_KEEP]
+    assert read_trace(store, UC, "step", recorders[0].run_id) is None  # pruned with its index entry
+    assert read_trace(store, UC, "step", recorders[-1].run_id) is not None

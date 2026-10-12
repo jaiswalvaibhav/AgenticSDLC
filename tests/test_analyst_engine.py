@@ -332,3 +332,23 @@ def test_the_runs_live_status_ends_done_blocked_or_failed(tmp_path, cfg):
     _run(store, tickets, cfg, step_id="s")
     done = store.get_json(activity_key(UC, "s"))
     assert done["phase"] == "done" and done["running"] is False
+
+
+def test_the_trace_has_what_the_model_was_sent_and_the_plan_it_returned(tmp_path, cfg):
+    from sdlc.agents.activity import list_runs, read_trace
+
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>Layers</h2><p>Raw, Curated.</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>Pipeline</h2><p>Daily batch.</p>")
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    plan = SolutionRequirementsPlan(summary="Nothing yet.", requirements=[])
+
+    _run(store, tickets, cfg, agent=FakeStrandsAgent(plan), step_id="s")
+
+    [entry] = list_runs(store, UC, "s")
+    trace = read_trace(store, UC, "s", entry["run_id"])
+    assert trace["kb_enabled"] is True and "search_knowledge" in trace["system_prompt"]
+    text = " ".join(b["text"] for b in trace["input"] if b["kind"] == "text")
+    assert "## Data Design Solution" in text and "Raw, Curated." in text and "Daily batch." in text
+    assert trace["result"]["summary"] == "Nothing yet." and trace["result"]["plan"]["requirements"] == []
+    assert trace["outcome"] == "planned"

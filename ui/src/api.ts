@@ -1,4 +1,4 @@
-import type { Meta, PollerState, Preview, Progress, ResetResult, RunInfo, RunRequest, RunResult, Step } from "./types";
+import type { AgentRunSummary, AgentTrace, Meta, PollerState, Preview, Progress, ResetResult, RunInfo, RunRequest, RunResult, Step } from "./types";
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -48,3 +48,10 @@ export const startPoller = (useCase: string, profile: string, confirmExternalLlm
   post<PollerState>("/poller/start", { use_case: useCase, profile, confirm_external_llm: confirmExternalLlm });
 export const stopPoller = () => post<PollerState>("/poller/stop");
 export const syncNow = () => post<PollerState>("/poller/sync-now");
+
+const agentRunsPath = (useCase: string, stepId: string) =>
+  `/runs/${encodeURIComponent(useCase)}/steps/${encodeURIComponent(stepId)}/agent-runs`;
+export const getAgentRuns = (useCase: string, stepId: string, profile: string) =>
+  request<{ runs: AgentRunSummary[] }>(`${agentRunsPath(useCase, stepId)}?profile=${encodeURIComponent(profile)}`).then((r) => r.runs);
+export const getAgentRun = (useCase: string, stepId: string, runId: string, profile: string) =>
+  request<AgentTrace>(`${agentRunsPath(useCase, stepId)}/${encodeURIComponent(runId)}?profile=${encodeURIComponent(profile)}`);
