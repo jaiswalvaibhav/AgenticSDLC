@@ -1,12 +1,13 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
-// Four pages, no router library: the path is the state. Links keep the query string
+// Five pages, no router library: the path is the state. Links keep the query string
 // (?profile=…), which says which board (local state or S3) this is.
-export type Route = { page: "backlog" } | { page: "board" } | { page: "issue"; key: string };
+export type Route = { page: "backlog" } | { page: "board" } | { page: "epics" } | { page: "issue"; key: string };
 
 export function parseRoute(path: string): Route {
   const issue = path.match(/^\/jira\/browse\/([^/]+)/);
   if (issue) return { page: "issue", key: decodeURIComponent(issue[1]) };
+  if (path.startsWith("/jira/epics")) return { page: "epics" };
   return path.startsWith("/jira/board") ? { page: "board" } : { page: "backlog" };
 }
 

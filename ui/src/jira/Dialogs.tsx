@@ -35,11 +35,11 @@ function useSubmit(done: () => void) {
 
 const openSprints = (board: BoardView) => board.sprints.filter((s) => s.state !== "closed");
 
-export function CreateIssueDialog({ board, sprintId, onClose, onCreated }: {
-  board: BoardView; sprintId: number | null; onClose: () => void; onCreated: (key: string) => void;
+export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCreated }: {
+  board: BoardView; sprintId: number | null; initialType?: string; onClose: () => void; onCreated: (key: string) => void;
 }) {
   const types = board.issue_types;
-  const [type, setType] = useState(types.find((t) => t === "Task") ?? types[0]);
+  const [type, setType] = useState(initialType ?? types.find((t) => t === "Task") ?? types[0]);
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   const [parent, setParent] = useState("");

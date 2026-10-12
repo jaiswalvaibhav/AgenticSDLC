@@ -8,16 +8,17 @@ import type { BoardView, IssueSummary, Sprint } from "./types";
 interface Props {
   board: BoardView;
   reload: () => Promise<unknown>;
-  onCreateIssue: (sprintId: number | null) => void;
+  onCreateIssue: (sprintId: number | null, type?: string) => void;
+  epic: string; // the epic filter, shared with the sidebar
+  onEpicChange: (key: string) => void;
 }
 
 type SprintDialogState = { kind: "start" | "edit" | "complete"; sprint: Sprint } | null;
 
-export function Backlog({ board, reload, onCreateIssue }: Props) {
+export function Backlog({ board, reload, onCreateIssue, epic, onEpicChange }: Props) {
   const [dialog, setDialog] = useState<SprintDialogState>(null);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [epic, setEpic] = useState("");
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null); // "sprint:<id|backlog>" or "issue:<key>"
 
@@ -119,7 +120,7 @@ export function Backlog({ board, reload, onCreateIssue }: Props) {
     <div>
       <div className="mj-toolbar">
         <input placeholder="Search backlog" value={text} onChange={(e) => setText(e.target.value)} />
-        <select value={epic} onChange={(e) => setEpic(e.target.value)} aria-label="Epic">
+        <select value={epic} onChange={(e) => onEpicChange(e.target.value)} aria-label="Epic">
           <option value="">All epics</option>
           {epics.map((e) => <option key={e.key} value={e.key}>{e.key} {e.summary}</option>)}
         </select>

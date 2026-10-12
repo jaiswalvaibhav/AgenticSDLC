@@ -107,3 +107,8 @@ button.mj-danger { color: var(--err); border-color: var(--err); }
 .mj-upload { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .mj-label-input { width: 100px; font-size: 12px; padding: 1px 6px; }
 .mj-details select { max-width: 100%; }
+
+.mj-nowrap { white-space: nowrap; }
+.mj-progress { display: flex; align-items: center; gap: 6px; }
+.mj-bar { flex: 1; min-width: 60px; max-width: 160px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; flex-shrink: 0; }
+.mj-bar > span { display: block; height: 100%; background: var(--ok); }

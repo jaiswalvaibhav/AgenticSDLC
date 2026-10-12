@@ -3,6 +3,7 @@ import * as api from "./api";
 import { Backlog } from "./Backlog";
 import { Board } from "./Board";
 import { CreateIssueDialog } from "./Dialogs";
+import { EpicsPage } from "./Epics";
 import { IssueView } from "./IssueView";
 import { message } from "./parts";
 import { Link, navigate, useRoute } from "./route";
@@ -16,7 +17,8 @@ export default function MockJiraApp() {
   const route = useRoute();
   const [board, setBoard] = useState<BoardView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState<{ sprintId: number | null } | null>(null);
+  const [epic, setEpic] = useState(""); // backlog filter, set from the sidebar or the backlog toolbar
+  const [creating, setCreating] = useState<{ sprintId: number | null; type?: string } | null>(null);
 
   const reload = useCallback(
     () => api.getBoard().then((b) => (setBoard(b), setError(null)), (e) => setError(message(e))),
@@ -53,20 +55,25 @@ export default function MockJiraApp() {
           </div>
           <Link to="/jira/backlog" className={route.page === "backlog" ? "active" : ""}>Backlog</Link>
           <Link to="/jira/board" className={route.page === "board" ? "active" : ""}>Active sprint</Link>
+          <Link to="/jira/epics" className={route.page === "epics" ? "active" : ""}>Epics</Link>
         </nav>
         <div className="mj-content">
           {error && <div className="banner error">Can't reach the backend (is `make api` running, with jira.mode: mock?): {error}</div>}
           {!board ? <p className="muted">Loading…</p> : route.page === "backlog" ? (
-            <Backlog board={board} reload={reload} onCreateIssue={(sprintId) => setCreating({ sprintId })} />
+            <Backlog board={board} reload={reload} epic={epic} onEpicChange={setEpic}
+              onCreateIssue={(sprintId, type) => setCreating({ sprintId, type })} />
           ) : route.page === "board" ? (
             <Board board={board} reload={reload} />
+          ) : route.page === "epics" ? (
+            <EpicsPage board={board} onCreate={() => setCreating({ sprintId: null, type: "Epic" })}
+              onShowInBacklog={(key) => { setEpic(key); navigate("/jira/backlog"); }} />
           ) : (
             <IssueView key={route.key} issueKey={route.key} board={board} reload={reload} />
           )}
         </div>
       </div>
       {creating && board && (
-        <CreateIssueDialog board={board} sprintId={creating.sprintId} onClose={() => setCreating(null)}
+        <CreateIssueDialog board={board} sprintId={creating.sprintId} initialType={creating.type} onClose={() => setCreating(null)}
           onCreated={(key) => { setCreating(null); reload(); navigate(`/jira/browse/${key}`); }} />
       )}
     </div>
