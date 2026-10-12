@@ -21,7 +21,7 @@ import yaml
 
 from sdlc.aws import cfn
 from sdlc.aws.ledger import Ledger, Resource
-from sdlc.config import save_aws_values
+from sdlc.config import SECRET_WORDS, save_aws_values
 from sdlc.wiring import jira_mode
 
 TEMPLATE_PATH = "infra/aws/templates/agent.yaml"
@@ -31,12 +31,17 @@ AGENT_NAME = "sdlc_orchestrator"
 
 def _zip_lambda_code(zip_path: Path) -> None:
     """Zips just the modules orchestrator_lambda.py's chain needs: config, sync_once,
-    wiring, ports, workflow/, and the jira/s3/agentcore_runtime adapters — not the
-    confluence/bedrock_kb/seed/pdf/diagrams/aws_sync modules or the agents/ package."""
+    wiring, ports, workflow/, the jira/mock_jira/s3/agentcore_runtime adapters and the
+    light analyst/ticket_anchors module — not the confluence/bedrock_kb/seed/pdf/diagrams/
+    aws_sync modules or the analyst engine. tests/test_agent_deploy.py imports the handler
+    from this zip, so a module added to the chain but not to this list fails there."""
     keep_files = {
         "sdlc/__init__.py", "sdlc/config.py", "sdlc/ports.py", "sdlc/wiring.py",
         "sdlc/sync_once.py",
         "sdlc/adapters/__init__.py", "sdlc/adapters/jira.py", "sdlc/adapters/jira_polling.py",
+        "sdlc/adapters/mock_jira.py",
+        "sdlc/agents/__init__.py", "sdlc/agents/analyst/__init__.py",
+        "sdlc/agents/analyst/ticket_anchors.py",  # the orchestrator's readiness check imports it
         "sdlc/adapters/local_store.py", "sdlc/adapters/s3_store.py", "sdlc/adapters/agentcore_runtime.py",
         "sdlc/aws/__init__.py", "sdlc/aws/orchestrator_lambda.py",
         "sdlc/workflow/__init__.py", "sdlc/workflow/registry.py", "sdlc/workflow/orchestrator.py",
@@ -63,13 +68,36 @@ def _upload_lambda_code(cfg: dict, *, dry_run: bool) -> tuple[str, str]:
     return bucket, key
 
 
+def _redacted(cmd: list[str]) -> list[str]:
+    """`--env KEY=VALUE` args with the value hidden for token/secret/password keys."""
+    return [f"{arg.partition('=')[0]}=***" if any(w in arg.partition("=")[0].lower() for w in SECRET_WORDS)
+            else arg for arg in cmd]
+
+
 def _run_agentcore_cli(cmd: list[str], *, dry_run: bool) -> str:
     if dry_run:
-        print(f"[dry-run] would run: {shlex.join(cmd)}")
+        print(f"[dry-run] would run: {shlex.join(_redacted(cmd))}")
         return ""
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:  # its default message would print the token
+        raise RuntimeError(f"`{shlex.join(_redacted(cmd))}` failed ({exc.returncode}): {exc.stderr}") from None
     print(result.stdout)
     return result.stdout
+
+
+def _runtime_env(cfg: dict) -> dict[str, str]:
+    """Env vars for the AgentCore Runtime itself (`agentcore launch --env`). The runtime
+    zip carries config.yaml but not .env, so credentials only reach it this way. profile=aws
+    is what makes it use S3 for state, incl. the mock Jira board it shares with the Lambda
+    (config.yaml says profile: local). Plaintext, as for the Lambda — see DECISIONS.md."""
+    atlassian, jira = cfg["atlassian"], cfg["jira"]
+    env = {"SDLC__PROFILE": "aws", "SDLC__JIRA__MODE": jira_mode(cfg),
+           "SDLC__JIRA__PROJECT_KEY": jira["project_key"],
+           "SDLC__JIRA__MOCK__PROJECT_KEY": jira["mock"]["project_key"],
+           "SDLC__ATLASSIAN__BASE_URL": atlassian["base_url"], "SDLC__ATLASSIAN__EMAIL": atlassian["email"],
+           "SDLC__ATLASSIAN__API_TOKEN": atlassian["api_token"]}
+    return {k: v for k, v in env.items() if v}
 
 
 def _read_agent_runtime_arn() -> str:
@@ -119,7 +147,7 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
 
     if dry_run:
         print(f"[dry-run] would run: agentcore configure -e {ENTRYPOINT} -er <AgentExecutionRoleArn>")
-        print("[dry-run] would run: agentcore launch")
+        print("[dry-run] would run: agentcore launch --env <profile, Jira mode/keys, Atlassian credentials>")
         print("[dry-run] would update the Lambda's AGENT_RUNTIME_ARN env var once known")
         return
 
@@ -128,7 +156,8 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
 
     _run_agentcore_cli(["agentcore", "configure", "-e", ENTRYPOINT, "-er", role_arn,
                         "-n", AGENT_NAME, "--non-interactive"], dry_run=False)
-    _run_agentcore_cli(["agentcore", "launch", "-auc"], dry_run=False)
+    env_args = [arg for k, v in _runtime_env(cfg).items() for arg in ("--env", f"{k}={v}")]
+    _run_agentcore_cli(["agentcore", "launch", "-auc", *env_args], dry_run=False)
     agent_runtime_arn = _read_agent_runtime_arn()
     ledger.append(Resource(kind="agentcore-runtime", id=agent_runtime_arn), dry_run=False)
 

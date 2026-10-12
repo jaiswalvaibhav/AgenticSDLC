@@ -1,21 +1,28 @@
 """Adapter factories shared by the CLI and the scheduled-orchestrator Lambda
 (src/sdlc/aws/orchestrator_lambda.py) — kept Typer-free so the Lambda doesn't need it.
 
-LocalAgentRuntime is imported lazily, inside agent_runtime() below, not at module
-scope: it transitively pulls in the analyst engine (bs4, and lazily Strands), which
-the Lambda never needs (profile=aws always takes the AgentCoreAgentRuntime branch) and
-which the brief wants kept out of the Lambda's dependency footprint.
+LocalAgentRuntime, ConfluenceClient and BedrockKnowledgeIndex are imported lazily,
+inside the functions below, not at module scope: they transitively pull in the analyst
+engine (bs4, and lazily Strands) and modules the scheduled Lambda's zip leaves out
+(aws/agent_deploy.py's _zip_lambda_code), and the Lambda never needs them (profile=aws
+always takes the AgentCoreAgentRuntime branch) — guarded by tests/test_orchestrator_lambda.py
+and tests/test_agent_deploy.py.
 """
+from typing import TYPE_CHECKING
+
 from sdlc.adapters.agentcore_runtime import AgentCoreAgentRuntime
-from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
-from sdlc.adapters.confluence import ConfluenceClient
 from sdlc.adapters.jira import JiraClient
 from sdlc.adapters.local_store import LocalObjectStore
 from sdlc.adapters.mock_jira import MockJiraClient
 from sdlc.adapters.s3_store import S3ObjectStore
 
+if TYPE_CHECKING:
+    from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
+    from sdlc.adapters.confluence import ConfluenceClient
 
-def confluence_client(cfg: dict) -> ConfluenceClient:
+
+def confluence_client(cfg: dict) -> "ConfluenceClient":
+    from sdlc.adapters.confluence import ConfluenceClient
     atlassian = cfg["atlassian"]
     return ConfluenceClient(
         base_url=atlassian["base_url"], email=atlassian["email"],
@@ -57,9 +64,10 @@ def jira_client(cfg: dict) -> JiraClient | MockJiraClient:
     )
 
 
-def knowledge_index(cfg: dict, kb_id: str | None = None) -> BedrockKnowledgeIndex:
+def knowledge_index(cfg: dict, kb_id: str | None = None) -> "BedrockKnowledgeIndex":
     """kb_id defaults to the Confluence KB (aws.knowledge_base_id); pass
     cfg["aws"]["jira_knowledge_base_id"] for the separate Jira KB (see jira_search)."""
+    from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
     return BedrockKnowledgeIndex(knowledge_base_id=kb_id or cfg["aws"]["knowledge_base_id"],
                                   region=cfg["aws"]["region"])
 
