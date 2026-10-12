@@ -95,3 +95,15 @@ button.mj-danger { color: var(--err); border-color: var(--err); }
 .mj-form input, .mj-form select, .mj-form textarea { color: var(--text); font-size: 14px; }
 .mj-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mj-form .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+.mj-inline { cursor: text; border-radius: 4px; padding: 1px 4px; margin: -1px -4px; display: inline-block; max-width: 100%; }
+.mj-inline:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.mj-issue h1 .mj-inline { display: block; }
+.mj-inline-edit { display: flex; flex-direction: column; gap: 6px; }
+.mj-inline-buttons { display: flex; gap: 6px; }
+.mj-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mj-add input, .mj-add select { flex: 1; min-width: 140px; }
+.mj-add-comment { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-bottom: 14px; }
+.mj-upload { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.mj-label-input { width: 100px; font-size: 12px; padding: 1px 6px; }
+.mj-details select { max-width: 100%; }

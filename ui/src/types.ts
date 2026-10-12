@@ -93,3 +93,10 @@ export type RunInfo =
       current_project_key: string;
       stale: boolean;
     };
+
+export interface ResetResult {
+  reset: true;
+  deleted: string[]; // mock Jira tickets deleted (empty with real Jira)
+  page_errors: Record<string, string>; // Confluence pages that could not be deleted
+  poller: PollerState;
+}

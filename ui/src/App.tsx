@@ -4,6 +4,7 @@ import { PollerStatus } from "./components/PollerStatus";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { ProgressTable } from "./components/ProgressTable";
 import { RunBanner } from "./components/RunBanner";
+import { StartFreshDialog } from "./components/StartFreshDialog";
 import { StepPicker } from "./components/StepPicker";
 import { TriggerDialog } from "./components/TriggerDialog";
 import type { Meta, PollerState, Preview, Progress, ProgressRow, RunInfo, Step } from "./types";
@@ -27,6 +28,8 @@ export default function App() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [freshOpen, setFreshOpen] = useState(false);
+  const [freshError, setFreshError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([api.getMeta(), api.getSteps()])
@@ -114,17 +117,26 @@ export default function App() {
     }
   };
 
-  const startFresh = async () => {
+  const startFresh = async (deletePages: boolean) => {
     setBusy(true);
-    setError(null);
+    setFreshError(null);
     try {
-      const result = await api.resetRun(useCase, profile);
+      const result = await api.resetRun(useCase, profile, deletePages);
+      setFreshOpen(false);
       setPoller(result.poller);
       setProgress(null);
-      setNotice("Started fresh: the saved run was cleared and polling stopped. Jira tickets were left as they are.");
+      const failed = Object.keys(result.page_errors);
+      setNotice(
+        "Started fresh: the saved run was cleared and polling stopped. " +
+          (meta?.jira_mode === "mock"
+            ? `${result.deleted.length} mock ticket(s) were deleted. `
+            : "Jira tickets were left as they are. ") +
+          (deletePages ? "The Confluence pages the workflow created were deleted." : "Confluence pages were left as they are."),
+      );
+      if (failed.length) setError(`Couldn't delete ${failed.length} Confluence page(s): ${failed.map((id) => `${id} (${result.page_errors[id]})`).join("; ")}`);
       await load();
     } catch (e) {
-      setError(message(e));
+      setFreshError(message(e));
     } finally {
       setBusy(false);
     }
@@ -227,9 +239,13 @@ export default function App() {
       </main>
 
       {progressError && <div className="banner error">Progress unavailable: {progressError}</div>}
-      <RunBanner info={runInfo} busy={busy} onStartFresh={startFresh} />
+      <RunBanner info={runInfo} busy={busy} onStartFresh={() => { setFreshError(null); setFreshOpen(true); }} />
       <ProgressTable progress={progress} busy={busy} onRefresh={refresh} onDecide={decide} onRerun={rerun} />
 
+      {freshOpen && meta && runInfo?.exists && (
+        <StartFreshDialog info={runInfo} jiraMode={meta.jira_mode} busy={busy} error={freshError}
+          onCancel={() => setFreshOpen(false)} onConfirm={startFresh} />
+      )}
       {dialogOpen && meta && preview && (
         <TriggerDialog meta={meta} profile={profile} useCase={useCase} preview={preview} busy={busy}
           error={dialogError} onCancel={() => setDialogOpen(false)} onConfirm={trigger} />

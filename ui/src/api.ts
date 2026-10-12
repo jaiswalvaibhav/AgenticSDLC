@@ -1,9 +1,9 @@
-import type { Meta, PollerState, Preview, Progress, RunInfo, RunRequest, RunResult, Step } from "./types";
+import type { Meta, PollerState, Preview, Progress, ResetResult, RunInfo, RunRequest, RunResult, Step } from "./types";
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
-    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+    headers: typeof init?.body === "string" ? { "Content-Type": "application/json" } : undefined,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
@@ -30,8 +30,8 @@ export const refreshProgress = (useCase: string, profile: string) =>
 const runPath = (useCase: string, profile: string, action: string) =>
   `/runs/${encodeURIComponent(useCase)}/${action}?profile=${encodeURIComponent(profile)}`;
 export const getRunInfo = (useCase: string, profile: string) => request<RunInfo>(runPath(useCase, profile, "info"));
-export const resetRun = (useCase: string, profile: string) =>
-  post<{ reset: true; poller: PollerState }>(runPath(useCase, profile, "reset"));
+export const resetRun = (useCase: string, profile: string, deletePages: boolean) =>
+  post<ResetResult>(`${runPath(useCase, profile, "reset")}${deletePages ? "&delete_pages_too=true" : ""}`);
 
 export const decide = (useCase: string, stepId: string, decision: "approve" | "reject", profile: string, feedback?: string) =>
   post<{ key: string; label: string; acting_now: boolean }>(

@@ -22,13 +22,23 @@ export function TriggerDialog({ meta, profile, useCase, preview, busy, error, on
       <div className="dialog">
         <h2>Trigger workflow</h2>
         <p>
-          This <strong>writes to Jira for real</strong>: it creates up to {ticketCount} step tickets (plus the epic,
-          if it doesn't exist) in project <strong>{meta.jira_project_key}</strong> for use case{" "}
-          <strong>{useCase}</strong>.
+          {meta.jira_mode === "mock" ? (
+            <>
+              This creates up to {ticketCount} step tickets (plus the epic, if it doesn't exist) in the{" "}
+              <strong>Mock Jira</strong> project <strong>{meta.jira_project_key}</strong> for use case{" "}
+              <strong>{useCase}</strong>. They live in your own state, not in a real Jira.
+            </>
+          ) : (
+            <>
+              This <strong>writes to Jira for real</strong>: it creates up to {ticketCount} step tickets (plus the
+              epic, if it doesn't exist) in project <strong>{meta.jira_project_key}</strong> for use case{" "}
+              <strong>{useCase}</strong>.
+            </>
+          )}
         </p>
         <p>
           {profile === "local"
-            ? "The orchestrator then polls Jira continuously from this backend, and runs the agent on your laptop."
+            ? `The orchestrator then polls ${meta.jira_mode === "mock" ? "the board" : "Jira"} continuously from this backend, and runs the agent on your laptop.`
             : "The scheduled orchestrator Lambda picks the run up; this UI does not poll."}
         </p>
         {needsLlmConfirm && (
