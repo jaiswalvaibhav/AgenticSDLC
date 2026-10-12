@@ -47,7 +47,7 @@ export default function MockJiraApp() {
     <div className="mj-app">
       <div className="mj-topbar">
         <strong className="mj-logo">Jira</strong>
-        <span className="muted small">local board — nothing here reaches your Jira site</span>
+        <span className="muted small">local board</span>
         <span className="mj-spacer" />
         <button className="primary mj-create-button" disabled={!board} onClick={() => setCreating({ sprintId: null })}>Create</button>
       </div>
