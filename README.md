@@ -37,6 +37,7 @@ under `usecases/enterprise*/`), with no code changes.
   ([id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens))
 - For seeding the demo diagrams: the `dot` binary (`brew install graphviz` /
   `apt install graphviz`) — everything else works without it
+- Node.js + npm, only for the workflow UI (`make ui`)
 - For the `aws` profile only: Docker (for `agentcore launch`'s container build)
 
 ## Setup (both profiles)
@@ -115,7 +116,10 @@ uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_soluti
 `make api` and `make ui` start a small local web UI (React + FastAPI, `ui/` and `backend/`) that lists
 the workflow artifacts, auto-selects the inputs you need to provide, triggers the run and keeps polling
 Jira while showing live progress, with Approve / Reject buttons for generated plans. You still attach
-artifacts in Jira. See
+artifacts in Jira (with the default `jira.mode: mock` that is the built-in Jira stand-in at
+http://localhost:5173/jira). Needs Node.js + npm; run `make api` in one terminal, then `make ui` in another,
+and open http://localhost:5173. For the ordered first-run checklist (credentials, LLM, optional Knowledge
+Base, trigger, provide inputs, approve) see
 [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) §5.8.
 
 ### No Bedrock Claude model access yet?

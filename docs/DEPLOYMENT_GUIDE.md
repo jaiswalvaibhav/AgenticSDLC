@@ -23,7 +23,7 @@ sample commands are show below.
 | Atlassian Cloud site (Confluence + Jira) with an API token ([id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens)) | everything |
 | `dot` binary (`brew install graphviz` / `apt install graphviz`) | only `sdlc seed`'s diagram generation |
 | Docker | only `profile: aws`'s `agentcore launch` container build |
-| Node.js + npm | only the optional workflow UI (§5.8) |
+| Node.js + npm | only the optional workflow UI (§5.8) — needed on first run, `make ui` runs `npm install` |
 
 ## 2. Install
 
@@ -295,6 +295,34 @@ a thin layer over the same code the CLI uses. **Local use only**: it binds `127.
 make api    # backend on http://127.0.0.1:8000
 make ui     # UI on http://localhost:5173 (first run does npm install)
 ```
+
+#### First run from the UI: checklist
+
+Follow this in order the first time you run the repo (local profile, mock Jira, the demo use case).
+Each step says how to check it worked.
+
+1. **Install**: `uv sync`, then `cp .env.example .env` (§2). Check: `uv run sdlc config show` prints the merged config.
+2. **Atlassian credentials in `.env`** (`SDLC__ATLASSIAN__*`, `SDLC__CONFLUENCE__SPACE_KEY`). Confluence is real even in
+   mock Jira mode (the agent reads and publishes pages there). A real Jira project is **not** needed: `jira.mode: mock`
+   (the default in `config.yaml`) keeps tickets in `.state/mock_jira/`. For real Jira set `SDLC__JIRA__MODE=real` and
+   `SDLC__JIRA__PROJECT_KEY` (§3).
+3. **Pick an LLM for the agent** (§4.2): either Bedrock (`aws.llm_model_id` in `config.yaml`, needs AWS credentials) or the
+   local stopgap `EXTERNAL_LLM_PROVIDER=anthropic|gemini` in `.env`. Without one, the agent step fails.
+4. **Knowledge Base (optional)**: for the full flow run `uv run sdlc aws-deploy --no-dry-run` (§4.1), then seed and sync the
+   demo pages (§5.1–5.2). To skip it, set `analyst.use_knowledge_base: false` in `config.yaml`; the agent then works
+   from the DDS/TDS alone and needs no AWS KB.
+5. **Start the backend and UI** in two terminals: `make api`, then `make ui`. Open http://localhost:5173
+   (the mock Jira is at http://localhost:5173/jira). Check: the header shows the use case and "KB: on/off".
+6. **Select and trigger** (§5.8 below): tick *Develop Solution Requirements*, check "Will create", press **Trigger workflow**.
+   Check: an epic and step tickets appear in the Progress table and the header says *Polling*.
+7. **Provide the inputs**: open each *provide* ticket (DDS, TDS) from the UI, attach exactly one Confluence page Web link
+   (or one `.xlsx/.pdf/.docx/.csv` file), and move it to Done. Within one poll interval (default 30 s) the agent starts.
+8. **Review the plan**: when the step shows *plan ready*, open "View agent log" if you want to see the model calls, then
+   press **Approve** (or **Reject** to regenerate). Check: the step becomes *applied* and Story + Sub-task tickets appear.
+9. **Start over any time** with **Start fresh** (with mock Jira this also deletes that use case's tickets).
+
+Troubleshooting: a "saved run is in another project" banner means `jira.mode`/project key changed since the run
+was saved; the agent comment "Anchor missing" means a *provide* ticket has zero or several links/attachments.
 
 What you do:
 
