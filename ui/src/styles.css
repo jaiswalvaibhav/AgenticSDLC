@@ -1,0 +1,64 @@
+:root {
+  --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #667085; --border: #d8dce3;
+  --accent: #2f6fed; --ok: #1a7f45; --warn: #9a6700; --err: #c4302b;
+  --chip-provide: #e6eefc; --chip-auto: #efe6fc; --chip-gen: #e3f4ea;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --panel: #1a1f29; --text: #e6e9ef; --muted: #9aa3b2; --border: #2c3340;
+    --accent: #6c9bff; --ok: #4cc380; --warn: #e0b04a; --err: #ff7b72;
+    --chip-provide: #223253; --chip-auto: #35274f; --chip-gen: #1d3a2b;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.app { max-width: 1280px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-bottom: 12px; }
+header h1 { font-size: 18px; margin: 0; }
+.controls { display: flex; gap: 16px; align-items: center; }
+.profiles label { margin-right: 10px; }
+main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; margin-bottom: 16px; }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+.panel h2 { font-size: 15px; margin: 0 0 6px; }
+.panel h3 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); }
+.panel-head { display: flex; justify-content: space-between; align-items: center; }
+.panel ul { margin: 0; padding-left: 18px; }
+.muted { color: var(--muted); }
+.note { flex-basis: 100%; }
+.steps { list-style: none; padding: 0 !important; }
+.step { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.step.ticked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.step label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.step .artifact { font-weight: 600; }
+.step .meta { flex-basis: 100%; margin-left: 26px; color: var(--muted); font-size: 12px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--chip-gen); margin-left: 6px; }
+.chip.provide { background: var(--chip-provide); }
+.chip.automated { background: var(--chip-auto); }
+button { font: inherit; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; margin-top: 14px; }
+.poller { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.badge { padding: 2px 10px; border-radius: 10px; font-weight: 600; font-size: 12px; }
+.badge.on { background: var(--ok); color: #fff; }
+.badge.off { background: var(--border); }
+.banner { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid; }
+.banner.error, .error { color: var(--err); }
+.banner.error { border-color: var(--err); }
+.banner.ok, .ok { color: var(--ok); }
+.banner.ok { border-color: var(--ok); }
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+th { font-size: 12px; color: var(--muted); }
+tr.done td { opacity: 0.7; }
+td.comment { max-width: 280px; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+a { color: var(--accent); }
+code { background: var(--border); padding: 0 4px; border-radius: 3px; }
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; padding: 16px; }
+.dialog { background: var(--panel); border-radius: 10px; padding: 20px; max-width: 520px; width: 100%; }
+.dialog h2 { margin-top: 0; }
+.dialog .warn { display: flex; gap: 8px; align-items: flex-start; color: var(--warn); margin: 12px 0; }
+.dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog .buttons .primary { margin-top: 0; }

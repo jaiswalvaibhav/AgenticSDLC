@@ -1,0 +1,34 @@
+import type { Meta, PollerState, Preview, Progress, RunRequest, RunResult, Step } from "./types";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    ...init,
+    headers: init?.body ? { "Content-Type": "application/json" } : undefined,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const detail = body?.detail;
+    throw new Error(typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : response.statusText);
+  }
+  return response.json() as Promise<T>;
+}
+
+const post = <T>(path: string, body?: unknown) =>
+  request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
+
+export const getMeta = () => request<Meta>("/meta");
+export const getSteps = () => request<{ steps: Step[] }>("/workflow").then((r) => r.steps);
+export const getPreview = (targets: string[]) => post<Preview>("/preview", { targets });
+export const startRun = (body: RunRequest) => post<RunResult>("/runs", body);
+
+const progressPath = (useCase: string, profile: string) =>
+  `/runs/${encodeURIComponent(useCase)}/progress?profile=${encodeURIComponent(profile)}`;
+export const getProgress = (useCase: string, profile: string) => request<Progress>(progressPath(useCase, profile));
+export const refreshProgress = (useCase: string, profile: string) =>
+  post<Progress>(`/runs/${encodeURIComponent(useCase)}/refresh?profile=${encodeURIComponent(profile)}`);
+
+export const getPoller = () => request<PollerState>("/poller");
+export const startPoller = (useCase: string, profile: string, confirmExternalLlm: boolean) =>
+  post<PollerState>("/poller/start", { use_case: useCase, profile, confirm_external_llm: confirmExternalLlm });
+export const stopPoller = () => post<PollerState>("/poller/stop");
+export const syncNow = () => post<PollerState>("/poller/sync-now");

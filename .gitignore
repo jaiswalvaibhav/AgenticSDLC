@@ -227,3 +227,5 @@ infra/aws/.ledger*
 .vscode/
 .DS_Store
 .bedrock_agentcore/*
+# Workflow UI
+ui/node_modules/
