@@ -1,8 +1,11 @@
 import type { Anchor, Progress, ProgressRow } from "../types";
+import { Clamp } from "./Clamp";
 
 interface Props {
   progress: Progress | null;
+  busy: boolean;
   onRefresh: () => void;
+  onDecide: (row: ProgressRow, decision: "approve" | "reject") => void;
 }
 
 function artifactCell(row: ProgressRow) {
@@ -21,26 +24,35 @@ function artifactCell(row: ProgressRow) {
   );
 }
 
-function stateCell(row: ProgressRow, approvalLabel: string) {
+function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide: Props["onDecide"]) {
   if (row.run_state === "awaiting_approval") {
     return (
       <>
         <strong>plan ready</strong>
-        <div>
+        <div className="actions">
+          <button className="approve" disabled={busy} onClick={() => onDecide(row, "approve")}>
+            Approve
+          </button>
+          <button disabled={busy} onClick={() => onDecide(row, "reject")}>
+            Reject
+          </button>
+        </div>
+        <div className="muted small">
+          or add <code>{progress.approval_label}</code> / <code>{progress.reject_label}</code> in{" "}
           <a href={row.jira_url} target="_blank" rel="noreferrer">
-            Add the <code>{approvalLabel}</code> label in Jira
-          </a>{" "}
-          to apply it
+            Jira
+          </a>
         </div>
       </>
     );
   }
+  if (row.run_state === "regenerating") return "regenerating the plan…";
   if (row.run_state === "applied") return "applied";
   if (row.run_state === "ready") return "regenerating after reject";
   return row.plan_ready ? "plan exists" : "";
 }
 
-export function ProgressTable({ progress, onRefresh }: Props) {
+export function ProgressTable({ progress, busy, onRefresh, onDecide }: Props) {
   return (
     <section className="panel">
       <div className="panel-head">
@@ -50,6 +62,7 @@ export function ProgressTable({ progress, onRefresh }: Props) {
       {!progress || progress.steps.length === 0 ? (
         <p className="muted">No tickets yet for this use case. Trigger a workflow to create them.</p>
       ) : (
+        <div className="table-wrap">
         <table>
           <thead>
             <tr>
@@ -81,12 +94,15 @@ export function ProgressTable({ progress, onRefresh }: Props) {
                 </td>
                 <td>{row.status}</td>
                 <td>{artifactCell(row)}</td>
-                <td>{stateCell(row, progress.approval_label)}</td>
-                <td className="comment">{row.recent_comments.at(-1) ?? ""}</td>
+                <td>{stateCell(row, progress, busy, onDecide)}</td>
+                <td className="comment">
+                  <Clamp text={row.recent_comments.at(-1) ?? ""} />
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       )}
       {progress && <p className="muted">Updated {new Date(progress.built_at).toLocaleTimeString()}</p>}
     </section>

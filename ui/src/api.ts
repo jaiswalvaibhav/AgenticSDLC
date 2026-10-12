@@ -33,6 +33,11 @@ export const getRunInfo = (useCase: string, profile: string) => request<RunInfo>
 export const resetRun = (useCase: string, profile: string) =>
   post<{ reset: true; poller: PollerState }>(runPath(useCase, profile, "reset"));
 
+export const decide = (useCase: string, stepId: string, decision: "approve" | "reject", profile: string) =>
+  post<{ key: string; label: string; acting_now: boolean }>(
+    `/runs/${encodeURIComponent(useCase)}/steps/${encodeURIComponent(stepId)}/${decision}?profile=${encodeURIComponent(profile)}`,
+  );
+
 export const getPoller = () => request<PollerState>("/poller");
 export const startPoller = (useCase: string, profile: string, confirmExternalLlm: boolean) =>
   post<PollerState>("/poller/start", { use_case: useCase, profile, confirm_external_llm: confirmExternalLlm });

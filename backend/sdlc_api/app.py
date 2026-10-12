@@ -9,6 +9,7 @@ leave this process — routes return only the specific fields they name, never c
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 import requests
 from fastapi import FastAPI, HTTPException
@@ -173,6 +174,33 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
         return {**refresh(use_case, profile or cfg["profile"]), "poller": poller.snapshot()}
+
+    @app.post("/api/runs/{use_case}/steps/{step_id}/{decision}")
+    def decide(use_case: str, step_id: str, decision: Literal["approve", "reject"],
+               profile: str | None = None) -> dict:
+        """Approve or reject a step's plan from the UI: adds the same sdlc-approved /
+        sdlc-rejected label you would add in Jira, and wakes the poller so the orchestrator
+        acts on it now (apply the plan, or regenerate it) rather than at the next interval."""
+        if use_case not in _use_cases():
+            raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
+        c = run_cfg(use_case, profile or cfg["profile"])
+        run_store = store or object_store(c)
+        key = orchestrator._steps_map(run_store, use_case).get(step_id)
+        if not key:
+            raise HTTPException(status_code=404, detail=f"no ticket for step {step_id!r} in this run")
+        if orchestrator._run_state(run_store, use_case).get(step_id) != "awaiting_approval":
+            raise HTTPException(status_code=409, detail=f"{step_id} has no plan awaiting approval")
+        label = cfg["jira"]["approval_label" if decision == "approve" else "reject_label"]
+        try:
+            client = tickets or jira_client(c)
+            if {cfg["jira"]["approval_label"], cfg["jira"]["reject_label"]} & set(client.get_issue(key).labels):
+                raise HTTPException(status_code=409, detail="a decision is already pending on this ticket")
+            client.add_label(key, label, dry_run=False)
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=502, detail=f"Jira request failed: {exc}")
+        snapshots.pop(use_case, None)
+        woke = bool(poller.run and poller.run["use_case"] == use_case and poller.sync_now())
+        return {"key": key, "label": label, "acting_now": woke}
 
     @app.get("/api/runs/{use_case}/info")
     def info(use_case: str, profile: str | None = None) -> dict:

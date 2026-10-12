@@ -119,6 +119,20 @@ def _inputs_satisfied(step: Step, steps_map: dict, tickets: TicketSystem, status
     return True
 
 
+def _run_agent(step: Step, key: str, *, tickets: TicketSystem, use_case: str, agent: AgentRuntime,
+               dry_run: bool) -> str | None:
+    """Runs the step's automated task and returns its status ("planned" when it produced a
+    plan, "blocked" when it already commented why not), or "failed" if it raised — reported
+    on the ticket, since otherwise it would only crash the poll cycle with nobody told."""
+    try:
+        result = agent.run(step.automation, {"use_case": use_case, "step_id": step.id,
+                                               "issue_key": key, "dry_run": dry_run})
+    except Exception as exc:
+        tickets.add_comment(key, f"Agent run failed: {type(exc).__name__}: {exc}", dry_run=dry_run)
+        return "failed"
+    return result.get("status")
+
+
 def _start_step(step: Step, *, steps_map: dict, tickets: TicketSystem, store: ObjectStore,
                  use_case: str, cfg: dict, statuses: dict, agent: AgentRuntime, dry_run: bool) -> None:
     key = steps_map.get(step.id)
@@ -141,14 +155,12 @@ def _start_step(step: Step, *, steps_map: dict, tickets: TicketSystem, store: Ob
             return
 
     if step.automation:
-        result = agent.run(step.automation, {"use_case": use_case, "step_id": step.id,
-                                               "issue_key": key, "dry_run": dry_run})
         # Only move to awaiting_approval when the task actually produced a plan —
         # e.g. engine.run_solution_requirements returns status "blocked" (and posts
         # its own explanatory comment) when an anchor isn't configured yet, in which
         # case the step ticket should stay as-is, not get a misleading "plan ready"
         # comment on top of the real one.
-        if result.get("status") == "planned":
+        if _run_agent(step, key, tickets=tickets, use_case=use_case, agent=agent, dry_run=dry_run) == "planned":
             run_state = _run_state(store, use_case)
             run_state[step.id] = "awaiting_approval"
             _save_run_state(store, use_case, run_state, dry_run)
@@ -284,10 +296,13 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
 
 
 def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use_case: str,
-                     dry_run: bool = True) -> list[str]:
+                     dry_run: bool = True, registry: WorkflowRegistry | None = None,
+                     agent: AgentRuntime | None = None) -> list[str]:
     """Polled once per sync cycle (see cli.py sync-progress), separately from
     handle_status_change — a label add isn't a status change. Returns the step ids that
-    were applied or sent back for regeneration this call."""
+    were applied or sent back for regeneration this call. With a registry and an agent, a
+    rejection removes the label and regenerates the plan right away (back to
+    awaiting_approval); without them it only marks the step "ready" to regenerate."""
     statuses = load_terminology(use_case)["statuses"]
     run_state = _run_state(store, use_case)
     steps_map = _steps_map(store, use_case)
@@ -306,8 +321,19 @@ def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use
             run_state[step_id] = "applied"
             acted.append(step_id)
         elif cfg["jira"]["reject_label"] in issue.labels:
-            tickets.add_comment(key, "Rejected — plan will be regenerated.", dry_run=dry_run)
-            run_state[step_id] = "ready"
+            step = registry[step_id] if registry and step_id in registry else None
+            if agent is None or step is None or not step.automation:
+                tickets.add_comment(key, "Rejected — plan will be regenerated.", dry_run=dry_run)
+                run_state[step_id] = "ready"
+            else:
+                # take the label off first, so one rejection can't trigger a second regeneration
+                tickets.remove_label(key, cfg["jira"]["reject_label"], dry_run=dry_run)
+                tickets.add_comment(key, "Rejected — regenerating the plan.", dry_run=dry_run)
+                run_state[step_id] = "regenerating"  # visible while the agent runs (a UI shows no buttons)
+                _save_run_state(store, use_case, run_state, dry_run)
+                planned = _run_agent(step, key, tickets=tickets, use_case=use_case, agent=agent,
+                                     dry_run=dry_run) == "planned"
+                run_state[step_id] = "awaiting_approval" if planned else "ready"
             acted.append(step_id)
 
     _save_run_state(store, use_case, run_state, dry_run)

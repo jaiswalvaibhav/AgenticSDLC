@@ -177,6 +177,10 @@ class FakeTicketSystem:
         if not dry_run:
             self.issues[key].labels.append(label)
 
+    def remove_label(self, key: str, label: str, dry_run: bool = True) -> None:
+        if not dry_run and label in self.issues[key].labels:
+            self.issues[key].labels.remove(label)
+
     def search(self, jql: str) -> list[Issue]:
         """Minimal JQL matcher covering only the clauses this project's own code emits
         (parent =, labels =) — not a general JQL parser."""

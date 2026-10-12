@@ -233,6 +233,18 @@ def test_download_attachment_gets_content_url(client):
     assert data == b"BYTES"
 
 
+def test_remove_label_puts_a_remove_update(client):
+    client._session.queue("PUT", "/issue/DEMO-1", FakeResponse({}))
+
+    client.remove_label("DEMO-1", "sdlc-rejected", dry_run=False)
+
+    method, url, body = client._session.calls[0]
+    assert method == "PUT" and url.endswith("/issue/DEMO-1")
+    assert body == {"update": {"labels": [{"remove": "sdlc-rejected"}]}}
+    client.remove_label("DEMO-1", "x", dry_run=True)
+    assert len(client._session.calls) == 1  # dry-run made no call
+
+
 def test_get_remote_links_returns_url_title_pairs(client):
     client._session.queue("GET", "/issue/DEMO-1/remotelink", FakeResponse([
         {"id": 1, "object": {"url": "https://x.atlassian.net/wiki/spaces/S/pages/42/Doc", "title": "TDS"}},

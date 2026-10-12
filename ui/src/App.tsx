@@ -6,7 +6,7 @@ import { ProgressTable } from "./components/ProgressTable";
 import { RunBanner } from "./components/RunBanner";
 import { StepPicker } from "./components/StepPicker";
 import { TriggerDialog } from "./components/TriggerDialog";
-import type { Meta, PollerState, Preview, Progress, RunInfo, Step } from "./types";
+import type { Meta, PollerState, Preview, Progress, ProgressRow, RunInfo, Step } from "./types";
 
 const PROGRESS_REFRESH_MS = 5000;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -130,6 +130,24 @@ export default function App() {
     }
   };
 
+  const decide = async (row: ProgressRow, decision: "approve" | "reject") => {
+    const ask = decision === "approve"
+      ? `Approve the plan for "${row.artifact}"?\n\nThis creates one Story per requirement (each with Engineering and Testing sub-tasks) in Jira and marks this step Done.`
+      : `Reject the plan for "${row.artifact}"?\n\nThe agent will regenerate it (another LLM run).`;
+    if (!window.confirm(ask)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.decide(useCase, row.step_id, decision, profile);
+      setNotice(`Added the ${result.label} label to ${result.key}.${result.acting_now ? " The orchestrator is acting on it now." : " It will be acted on when polling runs."}`);
+      await load();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggle = (stepId: string) =>
     setTargets((current) => (current.includes(stepId) ? current.filter((t) => t !== stepId) : [...current, stepId]));
   const changeUseCase = (next: string) => {
@@ -189,7 +207,7 @@ export default function App() {
 
       {progressError && <div className="banner error">Progress unavailable: {progressError}</div>}
       <RunBanner info={runInfo} busy={busy} onStartFresh={startFresh} />
-      <ProgressTable progress={progress} onRefresh={refresh} />
+      <ProgressTable progress={progress} busy={busy} onRefresh={refresh} onDecide={decide} />
 
       {dialogOpen && meta && preview && (
         <TriggerDialog meta={meta} profile={profile} useCase={useCase} preview={preview} busy={busy}

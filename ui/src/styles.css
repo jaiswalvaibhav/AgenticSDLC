@@ -66,3 +66,8 @@ code { background: var(--border); padding: 0 4px; border-radius: 3px; }
 .banner.info { border-color: var(--border); background: var(--panel); }
 .banner.warn { border-color: var(--warn); color: var(--warn); background: var(--panel); }
 .small { font-size: 12px; }
+.link-button { border: none; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 12px; text-decoration: underline; }
+.table-wrap { overflow-x: auto; }
+.actions { display: flex; gap: 6px; margin: 6px 0 4px; }
+.actions button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+td { overflow-wrap: anywhere; }

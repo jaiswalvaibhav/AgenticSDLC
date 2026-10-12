@@ -305,6 +305,59 @@ def test_check_approvals_places_new_requirement_stories_in_future_sprint(tickets
     assert story.key in keys
 
 
+def test_reject_with_an_agent_removes_the_label_and_regenerates_the_plan(tickets, store, cfg):
+    registry = WorkflowRegistry([Step("b", "analyst", (), "B", "analyst.b")])
+    key = _step_issue(tickets, store, UC, "b")
+    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
+    tickets.add_label(key, cfg["jira"]["reject_label"], dry_run=False)
+    agent = FakeAgentRuntime()
+
+    acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False,
+                                          registry=registry, agent=agent)
+
+    assert acted == ["b"]
+    assert [c[0] for c in agent.calls] == ["analyst.b"]
+    assert cfg["jira"]["reject_label"] not in tickets.get_issue(key).labels  # can't regenerate twice
+    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "awaiting_approval"
+    assert tickets.comments[key] == ["Rejected — regenerating the plan."]
+
+
+def test_reject_regeneration_that_does_not_produce_a_plan_leaves_the_step_ready(tickets, store, cfg):
+    registry = WorkflowRegistry([Step("b", "analyst", (), "B", "analyst.b")])
+    key = _step_issue(tickets, store, UC, "b")
+    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
+    tickets.add_label(key, cfg["jira"]["reject_label"], dry_run=False)
+
+    class Blocked:
+        def run(self, task_id, context):
+            return {"status": "blocked"}
+
+    orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False,
+                                  registry=registry, agent=Blocked())
+
+    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "ready"
+
+
+def test_a_failing_agent_is_reported_on_the_ticket_instead_of_crashing_the_cycle(tickets, store, cfg, monkeypatch):
+    monkeypatch.setattr(orchestrator, "load_terminology", lambda uc: {"statuses": STATUSES})
+    registry = WorkflowRegistry([Step("a", "analyst", (), "A", None), Step("b", "analyst", ("a",), "B", "analyst.b")])
+    a_key = _step_issue(tickets, store, UC, "a")
+    b_key = _step_issue(tickets, store, UC, "b")
+    tickets.transition_issue(a_key, STATUSES["done"], dry_run=False)
+    tickets.artifacts.add(a_key)
+
+    class Exploding:
+        def run(self, task_id, context):
+            raise RuntimeError("LoginRefreshRequired")
+
+    orchestrator.handle_status_change(StatusEvent(a_key, STATUSES["in_progress"], STATUSES["done"]),
+                                       tickets=tickets, store=store, cfg=cfg, registry=registry,
+                                       agent=Exploding(), dry_run=False)
+
+    assert tickets.comments[b_key][-1] == "Agent run failed: RuntimeError: LoginRefreshRequired"
+    assert (store.get_json(f"workflow/{UC}/run_state.json") or {}).get("b") is None
+
+
 def test_check_approvals_regenerates_on_reject(tickets, store, cfg):
     key = _step_issue(tickets, store, UC, "b")
     store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)

@@ -114,7 +114,8 @@ uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_soluti
 
 `make api` and `make ui` start a small local web UI (React + FastAPI, `ui/` and `backend/`) that lists
 the workflow artifacts, auto-selects the inputs you need to provide, triggers the run and keeps polling
-Jira while showing live progress. You still attach artifacts and approve plans in Jira. See
+Jira while showing live progress, with Approve / Reject buttons for generated plans. You still attach
+artifacts in Jira. See
 [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) §5.8.
 
 ### No Bedrock Claude model access yet?

@@ -98,4 +98,5 @@ def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: Ticket
             "recent_comments": issue.comments[-3:],
         })
     return {"built_at": datetime.now(timezone.utc).isoformat(),
-            "approval_label": cfg["jira"]["approval_label"], "steps": rows}
+            "approval_label": cfg["jira"]["approval_label"],
+            "reject_label": cfg["jira"]["reject_label"], "steps": rows}

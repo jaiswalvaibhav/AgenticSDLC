@@ -17,7 +17,8 @@ guidance, except where noted:
 - GET  /rest/api/3/issue/{key}/transitions    -> {"transitions": [{"id", "name", "to": {"name"}}]}
 - POST /rest/api/3/issue/{key}/transitions    -> {"transition": {"id": ...}}
 - POST /rest/api/3/issue/{key}/comment        -> {"body": <ADF>}
-- PUT  /rest/api/3/issue/{key}                -> {"update": {"labels": [{"add": "..."}]}}
+- PUT  /rest/api/3/issue/{key}                -> {"update": {"labels": [{"add": "..."}]}} (and
+  {"remove": "..."} to take a label off — the same update syntax)
 - POST /rest/api/3/issueLink                  -> {"type": {"name": "Blocks"}, "inwardIssue", "outwardIssue"}
 - POST /rest/api/3/issue/{key}/remotelink     -> {"object": {"url": "...", "title": "..."}}
 - GET  /rest/api/3/issue/{key}?fields=description,comment -> ADF bodies; get_text_links() walks them
@@ -255,6 +256,14 @@ class JiraClient:
             return
         resp = self._session.put(f"{self.base_url}/rest/api/3/issue/{key}",
                                   json={"update": {"labels": [{"add": label}]}})
+        resp.raise_for_status()
+
+    def remove_label(self, key: str, label: str, dry_run: bool = True) -> None:
+        if dry_run:
+            print(f"[dry-run] would remove label {label!r} from {key}")
+            return
+        resp = self._session.put(f"{self.base_url}/rest/api/3/issue/{key}",
+                                  json={"update": {"labels": [{"remove": label}]}})
         resp.raise_for_status()
 
     def search(self, jql: str) -> list[Issue]:

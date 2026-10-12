@@ -262,7 +262,12 @@ label:
 
 - `sdlc-approved` → next `sync-progress` run turns the plan into real Story +
   Engineering/Testing Sub-task tickets.
-- `sdlc-rejected` → the step is sent back for rework.
+- `sdlc-rejected` → the agent regenerates the plan straight away (the label is removed first, so one
+  rejection can't trigger two regenerations; the step shows "regenerating" meanwhile, then waits for
+  approval again). If the regeneration fails, the ticket gets an "Agent run failed: …" comment.
+
+In the UI (§5.8) the **Approve** / **Reject** buttons on the step's row do exactly this — they add the label
+for you.
 
 ```bash
 uv run sdlc sync-progress --no-dry-run
@@ -301,8 +306,10 @@ What you do:
    `workflow start --apply`) and starts the poller. If `EXTERNAL_LLM_PROVIDER` is set, tick the one-time
    consent for billed calls.
 4. **Provide the inputs in Jira, not in the UI**: attach exactly one Confluence link or one
-   `.xlsx`/`.xlsm`/`.pdf`/`.docx`/`.csv` file to each *provide* ticket and mark it Done. Approval is also in
-   Jira (add `sdlc-approved`). The UI links to each ticket.
+   `.xlsx`/`.xlsm`/`.pdf`/`.docx`/`.csv` file to each *provide* ticket and mark it Done. The UI links to each
+   ticket. **Approve or reject the plan in the UI**: when a step shows *plan ready*, its row has **Approve**
+   and **Reject** buttons (they add the `sdlc-approved` / `sdlc-rejected` label and wake the poller, so it
+   acts immediately). Adding the label in Jira works the same.
 5. **Watch the Progress table.** The poller runs the orchestrator (`sync_once`) every
    `ui.poll_interval_seconds` (default 30), so as you finish inputs the workflow proceeds on its own.
 

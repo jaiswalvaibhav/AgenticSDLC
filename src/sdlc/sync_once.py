@@ -21,5 +21,6 @@ def sync_once(cfg: dict, *, dry_run: bool) -> dict:
         orchestrator.handle_status_change(event, tickets=tickets, store=store, cfg=cfg,
                                            registry=registry, agent=agent, dry_run=dry_run)
     acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg,
-                                         use_case=cfg["use_case"], dry_run=dry_run)
+                                         use_case=cfg["use_case"], dry_run=dry_run,
+                                         registry=registry, agent=agent)
     return {"status_events": len(events), "approvals_acted_on": acted}

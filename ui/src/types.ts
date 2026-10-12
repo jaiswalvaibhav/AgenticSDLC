@@ -61,6 +61,7 @@ export interface PollerState {
 export interface Progress {
   built_at: string;
   approval_label: string;
+  reject_label: string;
   steps: ProgressRow[];
   poller: PollerState;
 }

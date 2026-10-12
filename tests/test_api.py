@@ -17,7 +17,7 @@ def cfg():
     return {"profile": "local", "use_case": "demo_order_fulfilment",
             "atlassian": {"base_url": "https://x.atlassian.net", "email": "a@b.com",
                           "api_token": "SECRET-TOKEN"},
-            "jira": {"project_key": "DEMO", "approval_label": "sdlc-approved",
+            "jira": {"project_key": "DEMO", "approval_label": "sdlc-approved", "reject_label": "sdlc-rejected",
                      "components": {"analyst": None, "engineer": "Engineering", "tester": "Testing"},
                      "assignees": {"analyst": None, "engineer": None, "tester": None}},
             "aws": {"agent_runtime_arn": ""}}
@@ -388,3 +388,60 @@ def test_progress_shows_how_many_times_the_llm_was_called_and_reset_clears_it(li
 
     live.post(f"/api/runs/{UC}/reset")
     assert store.get_json(f"workflow/{UC}/llm_usage.json") is None
+
+
+# --------------------------------------------------------------- approve / reject from the UI --
+def _awaiting(live, store):
+    steps = _run(live).json()["steps"]
+    store.put_json(f"workflow/{UC}/run_state.json", {"develop_solution_requirements": "awaiting_approval"},
+                   dry_run=False)
+    return steps["develop_solution_requirements"]
+
+
+def test_approve_adds_the_approval_label_and_wakes_the_poller(live, tickets, store):
+    key = _awaiting(live, store)
+
+    response = live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/approve")
+
+    assert response.status_code == 200
+    assert response.json() == {"key": key, "label": "sdlc-approved", "acting_now": True}
+    assert tickets.issues[key].labels == [*tickets.issues[key].labels[:-1], "sdlc-approved"]
+
+
+def test_reject_adds_the_reject_label(live, tickets, store):
+    key = _awaiting(live, store)
+
+    live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/reject")
+
+    assert "sdlc-rejected" in tickets.issues[key].labels and "sdlc-approved" not in tickets.issues[key].labels
+
+
+def test_decision_needs_a_plan_awaiting_approval_and_only_one_at_a_time(live, tickets, store):
+    steps = _run(live).json()["steps"]
+    url = f"/api/runs/{UC}/steps/develop_solution_requirements/approve"
+    assert live.post(url).status_code == 409  # nothing awaiting approval yet
+    assert tickets.issues[steps["develop_solution_requirements"]].labels.count("sdlc-approved") == 0
+
+    store.put_json(f"workflow/{UC}/run_state.json", {"develop_solution_requirements": "awaiting_approval"},
+                   dry_run=False)
+    assert live.post(url).status_code == 200
+    again = live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/reject")
+    assert again.status_code == 409 and "already pending" in again.json()["detail"]
+
+
+def test_decision_rejects_unknown_things(live, store):
+    _awaiting(live, store)
+    assert live.post("/api/runs/nope/steps/x/approve").status_code == 404
+    assert live.post(f"/api/runs/{UC}/steps/data_contract_typo/approve").status_code == 404
+    assert live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/maybe").status_code == 422
+
+
+def test_progress_exposes_the_reject_label_and_the_regenerating_state(live, store):
+    _awaiting(live, store)
+    store.put_json(f"workflow/{UC}/run_state.json", {"develop_solution_requirements": "regenerating"},
+                   dry_run=False)
+
+    body = live.post(f"/api/runs/{UC}/refresh").json()
+
+    assert body["reject_label"] == "sdlc-rejected"
+    assert {r["step_id"]: r["run_state"] for r in body["steps"]}["develop_solution_requirements"] == "regenerating"
