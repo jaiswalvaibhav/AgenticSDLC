@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { InlineText } from "./InlineText";
+import { Section } from "./Section";
 import type { ChecklistItem } from "./types";
 
 interface Props {
@@ -22,17 +23,13 @@ export function Checklist({ title, items, onChange }: Props) {
     onChange(item ? items.map((x, i) => (i === index ? item : x)) : items.filter((_, i) => i !== index));
 
   return (
-    <section className="mj-checklist">
-      <h3>
-        {title}
-        {items.length > 0 && (
-          <span className="mj-checklist-progress">
-            <span className="mj-bar" aria-hidden><span style={{ width: `${(100 * done) / items.length}%` }} /></span>
-            {done}/{items.length}
-          </span>
-        )}
-      </h3>
-      {items.length === 0 && <p className="muted small">Nothing listed yet.</p>}
+    <Section title={title} badge={items.length > 0 && (
+      <span className="mj-checklist-progress">
+        <span className="mj-bar" aria-hidden><span style={{ width: `${(100 * done) / items.length}%` }} /></span>
+        {done}/{items.length}
+      </span>
+    )}>
+      <div className="mj-checklist">
       <ul>
         {items.map((item, index) => (
           <li key={index} className={item.done ? "done" : undefined}>
@@ -51,6 +48,7 @@ export function Checklist({ title, items, onChange }: Props) {
           const text = e.clipboardData.getData("text");
           if (text.includes("\n")) { e.preventDefault(); add(text.split("\n")); }
         }} />
-    </section>
+      </div>
+    </Section>
   );
 }

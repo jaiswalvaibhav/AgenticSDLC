@@ -63,6 +63,7 @@ export const points = (issues: IssueSummary[]) => issues.reduce((sum, i) => sum 
 
 export const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : "");
 export const dateTime = (iso: string) => new Date(iso).toLocaleString();
+export const shortDateTime = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 // Jira's hierarchy (mirrors MockJiraClient._check_parent): an Epic has no parent; a Story/Task/Bug sits
 // under an Epic; a Subtask sits under a Story/Task/Bug.
