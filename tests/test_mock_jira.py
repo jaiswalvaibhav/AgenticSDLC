@@ -218,3 +218,32 @@ def test_two_clients_on_one_store_share_state(tmp_path, clock):
     key = make(a).key
     b.add_comment(key, "from b", dry_run=False)
     assert a.get_issue(key).comments == ["from b"]
+
+
+def test_parent_hierarchy_on_create(jira):
+    epic, story, task = make(jira, "Epic").key, make(jira).key, make(jira, "Task").key
+    sub = make(jira, "Subtask", parent_key=story).key
+    assert make(jira, "Bug", parent_key=epic) and make(jira, "Task", parent_key=epic)  # under an epic
+    assert make(jira, "Subtask", parent_key=task)  # under a task too
+    bad = [("Epic", epic, "epic cannot have a parent"), ("Story", story, "only be placed under an epic"),
+           ("Task", sub, "only be placed under an epic"), ("Subtask", epic, "story, task or bug"),
+           ("Subtask", sub, "story, task or bug"), ("Subtask", None, "needs a parent")]
+    for issue_type, parent, reason in bad:
+        with pytest.raises(ValueError, match=reason):
+            make(jira, issue_type, parent_key=parent)
+    with pytest.raises(KeyError):
+        make(jira, parent_key="MOCK-99")
+    assert len(jira.search('project = "MOCK"')) == 7  # nothing was created by the rejected calls
+
+
+def test_parent_hierarchy_on_edit(jira):
+    epic, story, task = make(jira, "Epic").key, make(jira).key, make(jira, "Task").key
+    sub = make(jira, "Subtask", parent_key=story).key
+    jira.update_fields(story, parent=epic)
+    jira.update_fields(story, parent=None)  # a story may have no epic
+    jira.update_fields(sub, parent=task)  # a subtask may move to another task
+    assert jira.get_issue(sub).parent_key == task
+    for key, parent, reason in [(story, task, "under an epic"), (sub, epic, "story, task or bug"),
+                                (sub, None, "needs a parent"), (epic, story, "epic cannot have a parent")]:
+        with pytest.raises(ValueError, match=reason):
+            jira.update_fields(key, parent=parent)

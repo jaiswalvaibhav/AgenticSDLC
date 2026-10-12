@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import * as api from "./api";
+import { ParentPicker } from "./ParentPicker";
 import { Avatar, Lozenge, Priority, TypeIcon, dateTime, isSubtask, message, statusCategory } from "./parts";
 import { Link, navigate } from "./route";
 import type { BoardView, IssueDetail } from "./types";
@@ -262,10 +263,8 @@ export function IssueView({ issueKey, board, reload }: Props) {
           </dd>
           <dt>Parent</dt>
           <dd>
-            <select value={issue.parent ?? ""} onChange={(e) => patch({ parent: e.target.value || null })}>
-              <option value="">None</option>
-              {others.filter((i) => !isSubtask(i)).map((i) => <option key={i.key} value={i.key}>{i.key} {i.summary}</option>)}
-            </select>
+            <ParentPicker board={board} issueType={issue.issuetype} selfKey={issue.key} value={issue.parent ?? ""}
+              onChange={(key) => patch({ parent: key || null })} />
           </dd>
           <dt>Sprint</dt>
           <dd>

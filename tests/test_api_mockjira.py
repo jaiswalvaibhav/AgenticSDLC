@@ -265,3 +265,13 @@ def test_real_jira_start_fresh_can_delete_the_pages_without_touching_tickets(sto
 
     assert response["deleted"] == [] and response["page_errors"] == {}
     assert "REAL-1" in tickets.issues and plan.page_id not in docs.pages
+
+
+def test_the_parent_rules_are_enforced_over_the_api(api):
+    epic = new_issue(api, issue_type="Epic")
+    story = new_issue(api, parent=epic)
+    refused = api.post(f"{API}/issues", json={"issue_type": "Story", "summary": "x", "parent": story})
+    assert refused.status_code == 400 and "epic" in refused.json()["detail"]
+    assert api.post(f"{API}/issues", json={"issue_type": "Subtask", "summary": "x"}).status_code == 400
+    assert api.patch(f"{API}/issues/{epic}", json={"parent": story}).status_code == 400
+    assert api.patch(f"{API}/issues/{story}", json={"parent": None}).status_code == 200

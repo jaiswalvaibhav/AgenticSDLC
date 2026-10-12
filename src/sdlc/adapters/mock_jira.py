@@ -145,6 +145,10 @@ class MockJiraClient:
             print(f"[dry-run] would create {issue_type} in {self.project_key}: {summary}")
             return Issue(key="(dry-run)", issue_type=issue_type, status=self.statuses[0],
                          summary=summary, labels=labels or [], parent_key=parent_key)
+        if parent_key:
+            self._check_parent(issue_type, self._doc(parent_key))
+        elif issue_type.lower() in _SUBTASK_TYPES:
+            raise ValueError("a subtask needs a parent")
 
         def allocate(board):
             num = board["next_issue_num"]
@@ -164,6 +168,19 @@ class MockJiraClient:
         self.store.put_bytes_if(self._issue_key(doc["key"]), json.dumps(doc, indent=2).encode(),
                                  None, dry_run=False)
         return self._to_issue(doc)
+
+    @staticmethod
+    def _check_parent(issue_type: str, parent: dict) -> None:
+        """Jira's hierarchy: an Epic has no parent; a Story/Task/Bug sits under an Epic; a
+        Subtask sits under a Story/Task/Bug (never an Epic or another Subtask)."""
+        child, above = issue_type.lower(), parent["issuetype"].lower()
+        if child == "epic":
+            raise ValueError("an epic cannot have a parent")
+        if child in _SUBTASK_TYPES:
+            if above == "epic" or above in _SUBTASK_TYPES:
+                raise ValueError("a subtask's parent must be a story, task or bug")
+        elif above != "epic":
+            raise ValueError(f"a {issue_type.lower()} can only be placed under an epic")
 
     def get_issue(self, key: str) -> Issue:
         return self._to_issue(self._doc(key))
@@ -388,10 +405,14 @@ class MockJiraClient:
             raise ValueError(f"cannot edit {sorted(unknown)}")
         if "priority" in fields and fields["priority"] not in PRIORITIES:
             raise ValueError(f"priority must be one of {PRIORITIES}")
-        if fields.get("parent"):
+        if "parent" in fields:
+            doc = self._doc(key)
             if fields["parent"] == key:
                 raise ValueError("an issue cannot be its own parent")
-            self._doc(fields["parent"])
+            if fields["parent"]:
+                self._check_parent(doc["issuetype"], self._doc(fields["parent"]))
+            elif doc["issuetype"].lower() in _SUBTASK_TYPES:
+                raise ValueError("a subtask needs a parent")
 
         def apply(doc):
             change = {f: (doc[f], v) for f, v in fields.items() if doc[f] != v}

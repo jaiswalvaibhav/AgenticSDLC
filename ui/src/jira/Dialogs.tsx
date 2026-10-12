@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import * as api from "./api";
-import { isSubtask, message } from "./parts";
+import { ParentPicker } from "./ParentPicker";
+import { eligibleParents, message, parentAllowed, parentRequired } from "./parts";
 import type { BoardView, Sprint } from "./types";
 
 // Reuses the workflow page's .overlay/.dialog look.
@@ -64,8 +65,12 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
     setPts("");
     summaryRef.current?.focus();
   });
-  const needsParent = isSubtask({ issuetype: type });
-  const parents = board.issues.filter((i) => !isSubtask(i));
+  const needsParent = parentRequired(type);
+  const changeType = (next: string) => {
+    setType(next);
+    // the chosen parent may not be allowed for the new type (e.g. a story under a story)
+    if (parent && !eligibleParents(board, next).some((i) => i.key === parent)) setParent("");
+  };
 
   const create = submit(async () => {
     const result = await api.createIssue({
@@ -81,7 +86,7 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
     <Modal title="Create issue" onClose={onClose}>
       <form onSubmit={create} className="mj-form">
         <label>Issue type
-          <select value={type} onChange={(e) => setType(e.target.value)}>
+          <select value={type} onChange={(e) => changeType(e.target.value)}>
             {types.map((t) => <option key={t}>{t}</option>)}
           </select>
         </label>
@@ -91,12 +96,12 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
         <label>Description
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
-        <label>Parent {needsParent ? "(required)" : "(epic or story, optional)"}
-          <select value={parent} required={needsParent} onChange={(e) => setParent(e.target.value)}>
-            <option value="">None</option>
-            {parents.map((i) => <option key={i.key} value={i.key}>{i.key} {i.summary}</option>)}
-          </select>
-        </label>
+        {parentAllowed(type) && (
+          <div className="mj-field">
+            <span className="mj-field-label">{needsParent ? "Parent (a story, task or bug, required)" : "Epic (optional)"}</span>
+            <ParentPicker board={board} issueType={type} value={parent} onChange={setParent} />
+          </div>
+        )}
         <div className="mj-form-row">
           <label>Priority
             <select value={priority} onChange={(e) => setPriority(e.target.value)}>
@@ -123,7 +128,7 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
           </label>
           <span className="mj-spacer" />
           <button type="button" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={busy || !summary.trim()}>{busy ? "Creating…" : "Create"}</button>
+          <button className="primary" disabled={busy || !summary.trim() || (needsParent && !parent)}>{busy ? "Creating…" : "Create"}</button>
         </div>
       </form>
     </Modal>
