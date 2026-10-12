@@ -293,6 +293,8 @@ def workflow_cleanup(
                           plan_page_title=_solution_requirements_page_title(use_case))
     typer.echo(f"jira issues: {', '.join(result['issues']) or 'none'}")
     typer.echo(f"confluence pages: {', '.join(result['pages']) or 'none'}")
+    for page_id, reason in result["page_errors"].items():
+        typer.echo(f"FAILED to delete page {page_id}: {reason}")
     for key, reason in result["failed"].items():
         typer.echo(f"FAILED to delete {key}: {reason}\nStopped: pages and saved state were left as they are.")
         raise typer.Exit(code=1)

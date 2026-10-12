@@ -103,3 +103,33 @@ def test_get_descendants_is_metadata_only_no_body_fetched():
     # no GET to /pages/2 or /pages/3 individually (no body fetch)
     fetched_urls = [url for _, url, _ in client._session.calls]
     assert not any(url.rstrip("/").endswith(("/pages/2", "/pages/3")) for url in fetched_urls)
+
+
+def test_replace_page_body_overwrites_the_body_and_bumps_the_version():
+    client = _client()
+    client._session.queue("GET", "/pages/42", FakeResponse({
+        "id": "42", "title": "5. Solution Requirements", "spaceId": "999", "version": {"number": 3},
+        "body": {"storage": {"value": "<p>old plan</p>"}}}))
+    client._session.queue("PUT", "/pages/42", FakeResponse({}))
+    client._session.queue("GET", "/pages/42", FakeResponse({
+        "id": "42", "title": "5. Solution Requirements", "version": {"number": 4},
+        "_links": {"webui": "/spaces/DEMO/pages/42"}, "body": {"export_view": {"value": "<p>new plan</p>"}}}))
+    _queue_empty_ancestors(client, "42")
+
+    page = client.replace_page_body("42", "<p>new plan</p>", dry_run=False)
+
+    [put] = [c for c in client._session.calls if c[0] == "PUT"]
+    assert put[1].endswith("/wiki/api/v2/pages/42")
+    assert put[2]["body"] == {"representation": "storage", "value": "<p>new plan</p>"}  # old text not kept
+    assert put[2]["version"]["number"] == 4 and put[2]["title"] == "5. Solution Requirements"
+    assert page.version == 4
+
+
+def test_replace_page_body_dry_run_writes_nothing():
+    client = _client()
+    client._session.queue("GET", "/pages/42", FakeResponse({
+        "id": "42", "title": "T", "version": {"number": 1}, "_links": {"webui": "/p"},
+        "body": {"export_view": {"value": ""}}}))
+    _queue_empty_ancestors(client, "42")
+    client.replace_page_body("42", "<p>x</p>")
+    assert not [c for c in client._session.calls if c[0] == "PUT"]

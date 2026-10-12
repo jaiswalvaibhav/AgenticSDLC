@@ -84,10 +84,10 @@ class FakeDocumentSource:
                         url="", version=1, parent_path=parent_id or "", html=body_html)
         return self.add_page(title, parent_id=parent_id, html=body_html)
 
-    def append_to_page(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:
+    def replace_page_body(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:
         page = self.pages[page_id]
         if not dry_run:
-            page.html += body_html
+            page.html = body_html
             page.version += 1
         return page
 

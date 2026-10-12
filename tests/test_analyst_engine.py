@@ -260,3 +260,32 @@ def test_nothing_is_recorded_without_a_step_id_without_metrics_or_on_dry_run(cfg
     _run(store, tickets, cfg, FakeStrandsAgent(plan, cycles=3), step_id=STEP, dry_run=True)
 
     assert store.get_json(USAGE_KEY) is None
+
+
+def test_a_rerun_replaces_the_plan_page_instead_of_appending_and_records_it(tmp_path, cfg):
+    from sdlc.workflow.pages import recorded_pages
+    store = FakeObjectStore()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>Layers</h2><p>Raw.</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>Pipeline</h2><p>Batch.</p>")
+    doc_source = FakeDocumentSource()
+    doc_source.add_page("Order Fulfilment Performance", page_id="0")
+    tickets = FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
+
+    def plan(req_id):
+        return SolutionRequirementsPlan(summary="s", requirements=[Requirement(
+            requirement_id=req_id, workstream="raw_ingestion", title="T", description="...",
+            acceptance_criteria=["x"], source_doc="data_design_solution", source_section="Layers",
+            stakeholder_requirement_ids=["SR-1"])])
+
+    for req_id in ("REQ-FIRST", "REQ-SECOND"):
+        run_solution_requirements({"use_case": UC, "issue_key": issue.key}, doc_source=doc_source,
+                                  knowledge_index=FakeKnowledgeIndex(), tickets=tickets, store=store,
+                                  cfg=cfg, dry_run=False, agent=FakeStrandsAgent(plan(req_id)))
+
+    page = doc_source.find_page_by_title("3. Solution Requirements")
+    assert "REQ-SECOND" in page.html and "REQ-FIRST" not in page.html  # replaced, not appended
+    assert [p.title for p in doc_source.pages.values()].count("3. Solution Requirements") == 1
+    assert set(recorded_pages(store, UC)) == {page.page_id}
+    assert recorded_pages(store, UC)[page.page_id]["issue_key"] == issue.key

@@ -34,6 +34,7 @@ from sdlc.agents.analyst.plan_schema import SolutionRequirementsPlan
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, pick_anchor_source
 from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, Page, TicketSystem
 from sdlc.workflow.orchestrator import _steps_map, load_terminology
+from sdlc.workflow.pages import record_page
 
 SYSTEM_PROMPT = (
     "You are the data analyst agent in an Autonomous Data SDLC. Below is the Data "
@@ -260,7 +261,7 @@ def _publish_plan_page(plan: SolutionRequirementsPlan, *, use_case: str, doc_sou
     body_html = _plan_html(plan)
     existing = doc_source.find_page_by_title(title)
     if existing:
-        return doc_source.append_to_page(existing.page_id, body_html, dry_run=dry_run)
+        return doc_source.replace_page_body(existing.page_id, body_html, dry_run=dry_run)  # not appended: a re-run replaces the old plan
     parent_id = anchors.resolve_anchor_page_id("usecase_root", use_case=use_case, doc_source=doc_source)
     return doc_source.create_page(parent_id, title, body_html, dry_run=dry_run)
 
@@ -299,6 +300,7 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
     store.put_json(f"workflow/{use_case}/plan.json", plan.model_dump(), dry_run=dry_run)
     store.put_bytes(f"workflow/{use_case}/plan.md", _plan_markdown(plan).encode(), dry_run=dry_run)
     page = _publish_plan_page(plan, use_case=use_case, doc_source=doc_source, dry_run=dry_run)
+    record_page(store, use_case, page, issue_key, dry_run=dry_run)
 
     workstream_count = len({r.workstream for r in plan.requirements})
     tickets.add_comment(

@@ -17,10 +17,13 @@ from pydantic import BaseModel
 
 from sdlc.config import load_config
 from sdlc.sync_once import sync_once
-from sdlc.wiring import jira_client, jira_mode, jira_project_key, object_store
+from sdlc.wiring import confluence_client, jira_client, jira_mode, jira_project_key, object_store
 from sdlc.workflow import orchestrator
+from sdlc.workflow.cleanup import cleanup_run
+from sdlc.workflow.pages import delete_pages, recorded_pages
 from sdlc.workflow.registry import Step, WorkflowError, WorkflowRegistry
 
+from sdlc_api.mockjira import build_router
 from sdlc_api.poller import Poller
 from sdlc_api.progress import build_progress, remember_selection, reset_run, run_info
 
@@ -58,10 +61,11 @@ def _profiles(cfg: dict) -> list[str]:
 
 
 def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None, *,
-                tickets=None, store=None, sync=None) -> FastAPI:
+                tickets=None, store=None, sync=None, docs=None) -> FastAPI:
     """A factory (run with `uvicorn --factory`) so importing this module never reads
     config; tests pass their own cfg/registry and fake tickets/store/sync (otherwise built
-    from cfg via sdlc.wiring, per run, so the chosen profile picks local vs S3 state)."""
+    from cfg via sdlc.wiring, per run, so the chosen profile picks local vs S3 state). `docs`
+    is the Confluence client "Start fresh" uses to delete pages (built only when asked to)."""
     cfg = cfg if cfg is not None else load_config()
     registry = registry or WorkflowRegistry.load()
     snapshots: dict[str, dict] = {}  # use_case -> last progress snapshot (rebuilt on demand)
@@ -95,6 +99,17 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
 
     app = FastAPI(title="Agentic SDLC workflow UI", lifespan=lifespan)
     app.state.poller = poller
+
+    if jira_mode(cfg) == "mock":
+        def mock_client(profile: str | None):
+            c = run_cfg(cfg["use_case"], profile or cfg["profile"])
+            return (tickets or jira_client(c)).acting_as("You")
+
+        def mock_changed() -> None:  # a person changed the board: refresh, and let the poller react now
+            snapshots.clear()
+            if poller.run:
+                poller.sync_now()
+        app.include_router(build_router(mock_client, mock_changed))
 
     auto_confirm = bool(cfg.get("analyst", {}).get("auto_confirm_external_llm"))  # config.yaml: always on
 
@@ -238,17 +253,37 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         return run_info(store or object_store(c), use_case, jira_project_key(cfg))
 
     @app.post("/api/runs/{use_case}/reset")
-    def reset(use_case: str, profile: str | None = None) -> dict:
+    def reset(use_case: str, profile: str | None = None, delete_pages_too: bool = False) -> dict:
         """'Start fresh': forgets the saved run for this use case (and stops the poller if it
-        is polling it). Jira tickets are left as they are."""
+        is polling it). Real Jira tickets are left as they are; with the mock Jira they are
+        deleted too. delete_pages_too also deletes the Confluence pages the run created (they
+        go to the space trash), never pages a person linked as inputs; without it they stay,
+        and the next run rewrites the plan page instead of appending to it."""
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
         if poller.run and poller.run["use_case"] == use_case:
             poller.stop()
         c = run_cfg(use_case, profile or cfg["profile"])
-        reset_run(store or object_store(c), use_case)
+        run_store = store or object_store(c)
+        doc_source = (docs or confluence_client(c)) if delete_pages_too else None
+        deleted: list[str] = []
+        page_errors: dict[str, str] = {}
+        try:
+            if jira_mode(cfg) == "mock":
+                result = cleanup_run(tickets=tickets or jira_client(c), doc_source=doc_source,
+                                     store=run_store, use_case=use_case, dry_run=False)
+                if result["failed"]:
+                    raise HTTPException(status_code=409, detail=f"could not delete: {result['failed']}")
+                deleted, page_errors = result["issues"], result["page_errors"]
+            else:
+                if doc_source:
+                    page_errors = delete_pages(doc_source, run_store, use_case,
+                                               set(recorded_pages(run_store, use_case)), dry_run=False)
+                reset_run(run_store, use_case)
+        except requests.RequestException as exc:
+            raise HTTPException(status_code=502, detail=f"Confluence request failed: {exc}")
         snapshots.pop(use_case, None)
-        return {"reset": True, "poller": poller.snapshot()}
+        return {"reset": True, "deleted": deleted, "page_errors": page_errors, "poller": poller.snapshot()}
 
     @app.get("/api/poller")
     def poller_status() -> dict:

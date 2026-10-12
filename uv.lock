@@ -1950,10 +1950,12 @@ dev = [
     { name = "httpx" },
     { name = "pillow" },
     { name = "pytest" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 ui = [
     { name = "fastapi" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 
@@ -1983,10 +1985,12 @@ dev = [
     { name = "httpx" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pytest" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 ui = [
     { name = "fastapi" },
+    { name = "python-multipart" },
     { name = "uvicorn" },
 ]
 

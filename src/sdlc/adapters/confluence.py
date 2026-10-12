@@ -229,19 +229,20 @@ class ConfluenceClient:
                      version=data["version"]["number"], parent_path=self._ancestor_path(data["id"]),
                      html=body_html)
 
-    def append_to_page(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:
+    def replace_page_body(self, page_id: str, body_html: str, dry_run: bool = True) -> Page:
+        """Overwrites the page body (title and position unchanged); the old body stays in the
+        page history. Same update-page request (PUT /pages/{id}) as move_page."""
         if dry_run:
-            print(f"[dry-run] would append {len(body_html)} chars to page {page_id}")
+            print(f"[dry-run] would replace the body of page {page_id} ({len(body_html)} chars)")
             return self.get_page(page_id)
         current = self._get(f"/pages/{page_id}", params={"body-format": "storage"})
-        new_value = current["body"]["storage"]["value"] + body_html
         payload = {
             "id": page_id,
             "status": "current",
             "title": current["title"],
             "spaceId": current["spaceId"],
-            "body": {"representation": "storage", "value": new_value},
-            "version": {"number": current["version"]["number"] + 1, "message": "sdlc append"},
+            "body": {"representation": "storage", "value": body_html},
+            "version": {"number": current["version"]["number"] + 1, "message": "sdlc replace"},
         }
         resp = self._session.put(f"{self.base_url}/wiki/api/v2/pages/{page_id}", json=payload)
         resp.raise_for_status()
@@ -260,7 +261,7 @@ class ConfluenceClient:
                    dry_run: bool = True) -> Page:
         """Rename and/or reparent a page within the same space. Verified against the
         Confluence Cloud REST v2 OpenAPI spec (PUT /pages/{id}): `title` and `parentId`
-        are both plain fields on the same update-page request body as `append_to_page`
+        are both plain fields on the same update-page request body as `replace_page_body`
         uses, no separate "move" endpoint needed."""
         if dry_run:
             print(f"[dry-run] would move page {page_id} to title={title!r} parent={parent_id}")

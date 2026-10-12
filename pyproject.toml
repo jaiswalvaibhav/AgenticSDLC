@@ -39,7 +39,7 @@ dev = [
 ]
 # The workflow UI's backend (backend/sdlc_api) — local use only, never needed by the Lambda
 # or the AgentCore image. Run with `uv run --group ui ...` (see Makefile `api`).
-ui = ["fastapi", "uvicorn"]
+ui = ["fastapi", "uvicorn", "python-multipart"]  # multipart: mock Jira attachment uploads
 
 [tool.pytest.ini_options]
 pythonpath = ["backend"]
