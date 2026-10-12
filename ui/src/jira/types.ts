@@ -7,6 +7,8 @@ export interface Sprint {
   start_date: string | null;
   end_date: string | null;
   complete_date: string | null;
+  completed?: number; // sprint report, set when the sprint is completed
+  not_completed?: number; // unfinished tickets that moved on
 }
 
 export interface IssueSummary {

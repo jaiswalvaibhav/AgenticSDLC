@@ -4,6 +4,7 @@ import { Backlog } from "./Backlog";
 import { Board } from "./Board";
 import { CreateIssueDialog } from "./Dialogs";
 import { EpicsPage } from "./Epics";
+import { IssuesPage } from "./IssuesPage";
 import { IssueView } from "./IssueView";
 import { message } from "./parts";
 import { Link, navigate, useRoute } from "./route";
@@ -62,6 +63,7 @@ export default function MockJiraApp() {
           <Link to="/jira/backlog" className={route.page === "backlog" ? "active" : ""}>Backlog</Link>
           <Link to="/jira/board" className={route.page === "board" ? "active" : ""}>Active sprint</Link>
           <Link to="/jira/epics" className={route.page === "epics" ? "active" : ""}>Epics</Link>
+          <Link to="/jira/issues" className={route.page === "issues" ? "active" : ""}>Issues</Link>
         </nav>
         <div className="mj-content">
           {error && <div className="banner error">Can't reach the backend (is `make api` running, with jira.mode: mock?): {error}</div>}
@@ -70,6 +72,8 @@ export default function MockJiraApp() {
               onCreateIssue={(sprintId, type) => setCreating({ sprintId, type })} />
           ) : route.page === "board" ? (
             <Board board={board} reload={reload} />
+          ) : route.page === "issues" ? (
+            <IssuesPage board={board} />
           ) : route.page === "epics" ? (
             <EpicsPage board={board} onCreate={() => setCreating({ sprintId: null, type: "Epic" })}
               onShowInBacklog={(key) => { setEpic(key); navigate("/jira/backlog"); }} />

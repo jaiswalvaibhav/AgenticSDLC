@@ -128,3 +128,9 @@ button.mj-danger { color: var(--err); border-color: var(--err); }
 .mj-picker-option:hover { background: var(--bg); }
 .mj-picker-option.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .mj-picker-empty { margin: 6px; }
+
+.mj-completed { margin-top: 24px; }
+.mj-completed h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; text-transform: uppercase; color: var(--muted); }
+.mj-sprint-state.closed { background: var(--border); color: var(--muted); }
+.mj-count { font-size: 11px; font-weight: 700; padding: 0 7px; border-radius: 10px; background: var(--border); }
+.mj-row.readonly { cursor: default; }

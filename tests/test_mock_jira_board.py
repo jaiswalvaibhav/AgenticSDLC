@@ -89,7 +89,9 @@ def test_complete_sprint_moves_only_unfinished_issues(jira):
     assert sorted(result["moved"]) == sorted([open_, doing])
     assert jira._doc(done)["sprint_id"] == s1
     assert jira._doc(open_)["sprint_id"] == s2 and jira._doc(doing)["sprint_id"] == s2
-    assert next(s for s in jira._board()["sprints"] if s["id"] == s1)["state"] == "closed"
+    closed = next(s for s in jira._board()["sprints"] if s["id"] == s1)
+    assert closed["state"] == "closed" and closed["complete_date"]
+    assert (closed["completed"], closed["not_completed"]) == (1, 2)  # the sprint report
     with pytest.raises(ValueError):
         jira.update_sprint(s1, name="x")
     with pytest.raises(ValueError, match="completed"):

@@ -482,14 +482,19 @@ class MockJiraClient:
             raise ValueError("only the active sprint can be completed")
         if move_to is not None and self._sprint_in(board, move_to)["state"] != "future":
             raise ValueError("unfinished issues can only move to a future sprint")
-        moved = []
+        moved, completed = [], 0
         for doc in self._all_docs():
-            if doc["sprint_id"] == sprint_id and doc["status"] != self.statuses[-1]:
+            if doc["sprint_id"] != sprint_id:
+                continue
+            if doc["status"] == self.statuses[-1]:
+                completed += 1
+            else:
                 self._set_sprint(doc["key"], move_to)
                 moved.append(doc["key"])
 
-        def close(b):
-            self._sprint_in(b, sprint_id).update(state="closed", complete_date=self._stamp())
+        def close(b):  # the counts are the sprint report: what finished, what moved on
+            self._sprint_in(b, sprint_id).update(state="closed", complete_date=self._stamp(),
+                                                 completed=completed, not_completed=len(moved))
         self._modify_board(close)
         return {"moved": moved, "move_to": move_to}
 

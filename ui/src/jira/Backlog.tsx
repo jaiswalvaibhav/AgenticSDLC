@@ -1,5 +1,6 @@
 import { useState, type DragEvent, type ReactNode } from "react";
 import * as api from "./api";
+import { CompletedSprints } from "./CompletedSprints";
 import { CompleteSprintDialog, SprintDialog } from "./Dialogs";
 import { Avatar, Priority, TypeIcon, day, isSubtask, message, points, statusCategory } from "./parts";
 import { Link } from "./route";
@@ -160,6 +161,8 @@ export function Backlog({ board, reload, onCreateIssue, epic, onEpicChange }: Pr
           <span className="muted small">{rowsOf(null).length} issue{rowsOf(null).length === 1 ? "" : "s"}</span>
         </>
       ))}
+
+      <CompletedSprints board={board} />
 
       {dialog && dialog.kind !== "complete" && (
         <SprintDialog mode={dialog.kind} sprint={dialog.sprint} onClose={() => setDialog(null)}
