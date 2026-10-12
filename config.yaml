@@ -12,8 +12,8 @@ jira:
   mode: mock   # mock = tickets in our own state, shown at /jira in the UI; real = Jira Cloud (needs atlassian.* and project_key)
   project_key: PROJECT_KEY   # real mode only
   mock:
-    project_key: MOCK
-    project_name: Mock SDLC
+    project_key: SDLC   # ticket keys read SDLC-1, SDLC-2, …
+    project_name: SDLC Delivery
     issue_types: [Epic, Story, Task, Bug, Subtask]
     statuses: [To Do, In Progress, Done]   # board columns, in order
   components:

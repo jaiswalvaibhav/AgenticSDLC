@@ -22,7 +22,7 @@ export function StartFreshDialog({ info, jiraMode, busy, error, onCancel, onConf
           This clears the saved run for this use case (ticket map, run state, plan) and stops polling.{" "}
           {jiraMode === "mock" ? (
             <>
-              It <strong>deletes the {info.ticket_count} Mock Jira tickets</strong> of this use case (with their
+              It <strong>deletes the {info.ticket_count} tickets</strong> of this use case from the Jira board (with their
               subtasks).
             </>
           ) : (

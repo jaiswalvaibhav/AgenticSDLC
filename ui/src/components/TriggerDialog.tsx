@@ -24,9 +24,9 @@ export function TriggerDialog({ meta, profile, useCase, preview, busy, error, on
         <p>
           {meta.jira_mode === "mock" ? (
             <>
-              This creates up to {ticketCount} step tickets (plus the epic, if it doesn't exist) in the{" "}
-              <strong>Mock Jira</strong> project <strong>{meta.jira_project_key}</strong> for use case{" "}
-              <strong>{useCase}</strong>. They live in your own state, not in a real Jira.
+              This creates up to {ticketCount} step tickets (plus the epic, if it doesn't exist) on the Jira board for
+              project <strong>{meta.jira_project_key}</strong> and use case <strong>{useCase}</strong>. They are kept
+              locally, not in your Jira site.
             </>
           ) : (
             <>

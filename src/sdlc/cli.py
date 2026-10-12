@@ -254,6 +254,30 @@ def workflow_preview(
             typer.echo(f"  - {step.artifact} [{step.id}]")
 
 
+@app.command("mock-jira-rename")
+def mock_jira_rename(
+    old: str = typer.Option(..., "--old", help="current project key, e.g. MOCK"),
+    new: str = typer.Option(..., "--new", help="new project key, e.g. SDLC"),
+    name: str = typer.Option(..., "--name", help="new project name"),
+    dry_run: bool = True,
+) -> None:
+    """Copy the mock Jira board to a new project key/name (the old board is kept as a backup). Stop
+    the UI backend first; afterwards set jira.mock.project_key / project_name in config.yaml."""
+    from sdlc.mock_jira_migrate import rename_project
+
+    use_cases = sorted(p.parent.name for p in Path("usecases").glob("*/usecase.yaml"))
+    try:
+        result = rename_project(object_store(load_config()), old, new, name, use_cases, dry_run=dry_run)
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
+    typer.echo(f"{result['issues']} issues, {result['attachments']} attachments, {result['sprints']} sprints; "
+               f"saved runs updated: {', '.join(result['saved_runs']) or 'none'}")
+    typer.echo("(dry-run: nothing written; use --no-dry-run)" if dry_run else
+               f"done. Old board kept at mock_jira/{old}/. Now set jira.mock.project_key/project_name in "
+               "config.yaml and restart the backend.")
+
+
 @workflow_app.command("start")
 def workflow_start(
     use_case: str = typer.Option(..., "--use-case"),

@@ -40,14 +40,14 @@ export default function MockJiraApp() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
-    document.title = board ? `${board.project.name} – Mock Jira` : "Mock Jira";
+    document.title = board ? `${board.project.name} – Jira` : "Jira";
   }, [board]);
 
   return (
     <div className="mj-app">
       <div className="mj-topbar">
-        <strong className="mj-logo">Mock Jira</strong>
-        <span className="muted small">local stand-in — nothing here reaches a real Jira</span>
+        <strong className="mj-logo">Jira</strong>
+        <span className="muted small">local board — nothing here reaches your Jira site</span>
         <span className="mj-spacer" />
         <button className="primary mj-create-button" disabled={!board} onClick={() => setCreating({ sprintId: null })}>Create</button>
       </div>
@@ -66,7 +66,7 @@ export default function MockJiraApp() {
           <Link to="/jira/issues" className={route.page === "issues" ? "active" : ""}>Issues</Link>
         </nav>
         <div className="mj-content">
-          {error && <div className="banner error">Can't reach the backend (is `make api` running, with jira.mode: mock?): {error}</div>}
+          {error && <div className="banner error">Can't reach the backend (is `make api` running?): {error}</div>}
           {!board ? <p className="muted">Loading…</p> : route.page === "backlog" ? (
             <Backlog board={board} reload={reload} epic={epic} onEpicChange={setEpic}
               onCreateIssue={(sprintId, type) => setCreating({ sprintId, type })} />

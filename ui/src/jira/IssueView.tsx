@@ -91,7 +91,26 @@ export function IssueView({ issueKey, board, reload }: Props) {
   };
 
   if (!issue) {
-    return error ? <div className="banner error">{error}</div> : <p className="muted">Loading…</p>;
+    if (!error) return <p className="muted">Loading…</p>;
+    if (!/not found/.test(error)) return <div className="banner error">{error}</div>;
+    // an old address, e.g. a bookmark made before the project key was renamed: same number, new prefix
+    const number = issueKey.slice(issueKey.lastIndexOf("-") + 1);
+    const renamed = `${board.project.key}-${number}`;
+    const sameTicket = !issueKey.startsWith(`${board.project.key}-`) && board.issues.some((i) => i.key === renamed);
+    return (
+      <div className="mj-empty-state">
+        <h2>{issueKey} doesn't exist</h2>
+        {sameTicket ? (
+          <p>
+            Tickets in this project are named <strong>{board.project.key}-n</strong>. Did you mean{" "}
+            <Link to={`/jira/browse/${renamed}`}>{renamed}</Link>?
+          </p>
+        ) : (
+          <p className="muted">It may have been deleted.</p>
+        )}
+        <Link to="/jira/backlog" className="mj-button-link">Go to the backlog</Link>
+      </div>
+    );
   }
 
   const others = board.issues.filter((i) => i.key !== issue.key);

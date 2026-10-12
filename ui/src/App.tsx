@@ -129,7 +129,7 @@ export default function App() {
       setNotice(
         "Started fresh: the saved run was cleared and polling stopped. " +
           (meta?.jira_mode === "mock"
-            ? `${result.deleted.length} mock ticket(s) were deleted. `
+            ? `${result.deleted.length} ticket(s) were deleted. `
             : "Jira tickets were left as they are. ") +
           (deletePages ? "The Confluence pages the workflow created were deleted." : "Confluence pages were left as they are."),
       );
@@ -218,7 +218,7 @@ export default function App() {
         )}
         {meta?.jira_mode === "mock" && (
           <a href={`/jira/backlog${profile === meta.default_profile ? "" : `?profile=${profile}`}`} target="_blank"
-            rel="noreferrer">Open Mock Jira ↗</a>
+            rel="noreferrer">Open Jira board ↗</a>
         )}
         <PollerStatus poller={poller} busy={busy} onStart={startPolling}
           onStop={() => act(api.stopPoller)} onSyncNow={() => act(api.syncNow)} />

@@ -52,6 +52,7 @@ Autonomous Data SDLC: a Jira-driven orchestrator plus an analyst agent that turn
 - `uv run sdlc jira-kb-create [--no-dry-run]`: one-time setup of the Jira downloader's own Knowledge Base.
 - `uv run sdlc jira-aws-sync [--no-dry-run]`: upload `.data/corpus_jira/` to S3 and run ingestion against the Jira KB.
 - `uv run sdlc jira-search "<query>"`: Retrieve against the Jira KB.
+- `uv run sdlc mock-jira-rename --old MOCK --new SDLC --name "SDLC Delivery" [--no-dry-run]`: copy the mock Jira board to a new project key/name (rewrites keys, links, ranking, history and saved runs; the old board stays as a backup). Stop the backend first; then set `jira.mock.project_key`/`project_name` in config.yaml and restart.
 - `make api` / `make ui`: the workflow UI backend (:8000) and frontend (:5173, needs Node; run `make api` first). With `jira.mode: mock` the Jira stand-in is at http://localhost:5173/jira. Dependencies: the `ui` uv group (also in `dev`).
 - `uv run pytest`: run the tests.
 
