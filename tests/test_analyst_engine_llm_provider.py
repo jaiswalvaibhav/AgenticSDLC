@@ -104,3 +104,19 @@ def test_external_provider_prompts_unless_confirmed_at_trigger(monkeypatch, cfg,
 
     _build_real_agent(knowledge_index=None, use_case="uc", cfg={**cfg, "external_llm_confirmed": True})
     assert len(calls) == 1  # the UI path, confirmed once at trigger, doesn't prompt again
+
+
+def test_without_a_knowledge_index_the_agent_has_no_search_tool_and_the_prompt_says_so(monkeypatch, cfg):
+    monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
+    agent = _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
+    assert "search_knowledge" not in agent.tool_names
+    assert "search_knowledge" not in agent.system_prompt
+    assert "No knowledge base is available" in agent.system_prompt
+
+
+def test_with_a_knowledge_index_the_agent_gets_the_search_tool(monkeypatch, cfg):
+    from sdlc.adapters.fake import FakeKnowledgeIndex
+    monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
+    agent = _build_real_agent(knowledge_index=FakeKnowledgeIndex(), use_case="uc", cfg=cfg)
+    assert "search_knowledge" in agent.tool_names
+    assert "search_knowledge" in agent.system_prompt

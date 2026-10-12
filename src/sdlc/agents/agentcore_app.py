@@ -18,7 +18,7 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from sdlc.adapters.s3_store import S3ObjectStore
 from sdlc.agents.analyst.tasks import resolve_task
 from sdlc.config import load_config
-from sdlc.wiring import confluence_client, jira_client, knowledge_index as knowledge_index_factory
+from sdlc.wiring import confluence_client, jira_client, kb_enabled, knowledge_index as knowledge_index_factory
 
 app = BedrockAgentCoreApp()
 
@@ -34,7 +34,7 @@ def _dispatch(payload: dict) -> dict:
     cfg = load_config()
     doc_source = confluence_client(cfg)
     tickets = jira_client(cfg)
-    index = knowledge_index_factory(cfg)
+    index = knowledge_index_factory(cfg) if kb_enabled(cfg)[0] else None
     # Always S3 here: this is the container the AgentCore Runtime deploys, which
     # only ever runs under profile=aws (unlike wiring.object_store, which also
     # handles profile=local for the CLI/Lambda).

@@ -7,7 +7,7 @@ from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, TicketSystem
 
 
 class LocalAgentRuntime:
-    def __init__(self, *, doc_source: DocumentSource, knowledge_index: KnowledgeIndex,
+    def __init__(self, *, doc_source: DocumentSource, knowledge_index: KnowledgeIndex | None,
                  tickets: TicketSystem, store: ObjectStore, cfg: dict):
         self.doc_source = doc_source
         self.knowledge_index = knowledge_index

@@ -19,7 +19,10 @@ def make_search_knowledge_tool(knowledge_index: KnowledgeIndex, use_case: str):
         Args:
             query: a natural-language search query.
         """
-        chunks = knowledge_index.search(query, use_case=use_case, top_k=5)
+        try:
+            chunks = knowledge_index.search(query, use_case=use_case, top_k=5)
+        except Exception as exc:  # a broken KB degrades the run (the model works from the documents given), not fails it
+            return f"Knowledge base unavailable ({type(exc).__name__}: {exc}). Continue from the documents given."
         if not chunks:
             return "No results."
         return "\n\n".join(

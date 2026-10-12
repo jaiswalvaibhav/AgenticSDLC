@@ -73,6 +73,16 @@ def knowledge_index(cfg: dict, kb_id: str | None = None) -> "BedrockKnowledgeInd
                                   region=cfg["aws"]["region"])
 
 
+def kb_enabled(cfg: dict) -> tuple[bool, str]:
+    """Whether the analyst agent gets a Knowledge Base, and why not: `analyst.use_knowledge_base`
+    (default true) and a non-empty `aws.knowledge_base_id` must both hold."""
+    if not cfg.get("analyst", {}).get("use_knowledge_base", True):
+        return False, "analyst.use_knowledge_base is false"
+    if not cfg["aws"].get("knowledge_base_id"):
+        return False, "aws.knowledge_base_id is not set"
+    return True, ""
+
+
 def object_store(cfg: dict):
     """local profile: a local folder. aws profile: S3, so the Lambda, the AgentCore
     agent and any local-profile run against the same bucket all share state."""
@@ -88,5 +98,5 @@ def agent_runtime(cfg: dict, tickets, store):
     if cfg["profile"] == "aws":
         return AgentCoreAgentRuntime(agent_runtime_arn=cfg["aws"]["agent_runtime_arn"], region=cfg["aws"]["region"])
     from sdlc.agents.runtime import LocalAgentRuntime
-    return LocalAgentRuntime(doc_source=confluence_client(cfg), knowledge_index=knowledge_index(cfg),
+    return LocalAgentRuntime(doc_source=confluence_client(cfg), knowledge_index=knowledge_index(cfg) if kb_enabled(cfg)[0] else None,
                               tickets=tickets, store=store, cfg=cfg)

@@ -32,6 +32,7 @@ analyst:
   auto_confirm_external_llm: true   # skip the billed-call confirmation for the local Anthropic/Gemini stopgap (CLI and UI); set false to confirm per call / per trigger
   max_anchor_chars: 400000   # ~100k tokens; anchors above this block with a comment, never truncated
   max_pdf_bytes: 4500000
+  use_knowledge_base: true   # false = run the analyst from the DDS/TDS alone, no Knowledge Base calls (also off automatically when aws.knowledge_base_id is empty)
 orchestrator:
   auto_start_manual_steps: true
   reopen_parent_on_child_reopen: true

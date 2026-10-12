@@ -36,12 +36,21 @@ from sdlc.ports import DocumentSource, KnowledgeIndex, ObjectStore, Page, Ticket
 from sdlc.workflow.orchestrator import _steps_map, load_terminology
 from sdlc.workflow.pages import record_page
 
-SYSTEM_PROMPT = (
+_PROMPT_INTRO = (
     "You are the data analyst agent in an Autonomous Data SDLC. Below is the Data "
     "Design Solution and the Technical Design Solution, given to you in full — read "
-    "them section by section, including the architecture diagrams. Use the "
-    "search_knowledge tool for anything else you need (stakeholder requirements, "
+    "them section by section, including the architecture diagrams. "
+)
+_KB_SENTENCE = (
+    "Use the search_knowledge tool for anything else you need (stakeholder requirements, "
     "source data analysis, conceptual data model, feasibility analysis, glossary). "
+)
+_NO_KB_SENTENCE = (
+    "No knowledge base is available for this run: work only from the documents given, "
+    "don't invent stakeholder requirement ids, and state any gap as an assumption in the "
+    "requirement's description. "
+)
+_PROMPT_BODY = (
     "Produce solution requirements grouped into workstreams (raw_ingestion, "
     "curated_modelling, presentation_bi, data_quality), each with a citation back to "
     "the exact DDS/TDS section heading it came from plus any stakeholder requirement "
@@ -58,6 +67,13 @@ SYSTEM_PROMPT = (
     "monitoring), and test coverage lists the tests needed (unit, data quality, "
     "reconciliation, performance and so on)."
 )
+
+
+def system_prompt(kb: bool = True) -> str:
+    return _PROMPT_INTRO + (_KB_SENTENCE if kb else _NO_KB_SENTENCE) + _PROMPT_BODY
+
+
+SYSTEM_PROMPT = system_prompt(True)
 
 
 def _build_local_llm_model(provider: str, confirmed: bool = False):
@@ -114,7 +130,7 @@ def _build_local_llm_model(provider: str, confirmed: bool = False):
     raise ValueError(f"Unknown EXTERNAL_LLM_PROVIDER={provider!r} (expected 'anthropic' or 'gemini')")
 
 
-def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict):
+def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg: dict):
     import os
 
     from strands import Agent
@@ -143,8 +159,9 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
 
         model = BedrockModel(model_id=model_id, region_name=cfg["aws"]["region"])
 
-    return Agent(model=model, tools=[make_search_knowledge_tool(knowledge_index, use_case)],
-                 system_prompt=SYSTEM_PROMPT)
+    # no KnowledgeIndex = no search_knowledge tool and a prompt that doesn't mention it
+    tools = [make_search_knowledge_tool(knowledge_index, use_case)] if knowledge_index else []
+    return Agent(model=model, tools=tools, system_prompt=system_prompt(kb=knowledge_index is not None))
 
 
 def _content_blocks(anchors: list[tuple[str, AnchorResult]]) -> list[dict]:
@@ -284,7 +301,7 @@ def _publish_plan_page(plan: SolutionRequirementsPlan, *, use_case: str, doc_sou
 
 
 def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
-                               knowledge_index: KnowledgeIndex, tickets: TicketSystem,
+                               knowledge_index: KnowledgeIndex | None, tickets: TicketSystem,
                                store: ObjectStore, cfg: dict, dry_run: bool = True,
                                agent=None) -> dict:
     use_case, issue_key = context["use_case"], context["issue_key"]

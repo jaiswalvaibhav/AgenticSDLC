@@ -76,6 +76,9 @@ def sync(root_page_id: str = typer.Option(..., "--root-page-id", help="Confluenc
 def search(query: str, top_k: int = 10) -> None:
     """Search the Managed Knowledge Base, scoped to the configured use case."""
     cfg = load_config()
+    if not cfg["aws"].get("knowledge_base_id"):
+        typer.echo("aws.knowledge_base_id is not set: nothing to search (run aws-deploy first).")
+        raise typer.Exit(1)
     index = knowledge_index(cfg)
     for chunk in index.search(query, use_case=cfg["use_case"], top_k=top_k):
         typer.echo(f"[{chunk.score:.3f}] {chunk.page_title}  ({chunk.page_url})")
