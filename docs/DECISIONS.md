@@ -221,3 +221,19 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
 - **workflow.yaml**: `test_case_specification` and `data_solution_development` listed `solution_requirements`, which no longer exists as a step; both now list `develop_solution_requirements`. `technical_design_solution` now also needs `data_design_solution`, so the DDS is Done before the TDS starts.
 - **`data_contract` is a required step** (user-confirmed; `optional: true` removed), an input of `test_solution_report`. It is selected by default and by `--from develop_solution_requirements`, so the tail of the chain is no longer dropped. The registry's `optional` flag is kept but unused today.
 - **terminology.yaml**: added `develop_solution_requirements: Develop Solution Requirements`; kept `solution_requirements`, which titles the published plan page and is the analyst task's output. Step Story titles come from `workflow.yaml`'s `artifact`, not terminology.
+
+
+## Decisions (workflow UI: FastAPI backend + React UI — 2026-10-12)
+User-confirmed choices:
+- **Selection**: ticked steps plus their *direct* inputs as artifact-only ("provide"); no downstream expansion (`registry.resolve_targets`, `workflow_start(targets=…)`). Different from `--from`, which also pulls in every reachable downstream step.
+- **Uploads and approval stay in Jira**; the UI is read-only for them and links to each ticket.
+- **Stack/layout**: FastAPI backend in `backend/sdlc_api/`, React + Vite + TypeScript in `ui/`, separate modules; the backend imports `sdlc` and adds no business logic. `fastapi`/`uvicorn` are in a new `ui` uv group (also in `dev`), never in the Lambda/AgentCore dependencies.
+- **Writes**: preview first (`/api/preview`, no Jira calls), then a confirmed live trigger (`dry_run=False`); the dialog says so.
+- **External LLM stopgap**: consent is collected once at trigger (`cfg["external_llm_confirmed"]`) because `typer.confirm` can't prompt in a background poller; the CLI is unchanged.
+
+Implementation choices:
+- **Poller** (`poller.py`): one daemon thread running `sync_once(dry_run=False)` then a snapshot rebuild per cycle, one lock so cycles never overlap, errors recorded not fatal. Local profile only. One use case at a time. Interval `ui.poll_interval_seconds` (30), deliberately faster than the CLI's `jira.poll_interval_seconds` (300).
+- **Resume**: `ui/poller.json` (in the local store) records what was started; server shutdown halts the thread but leaves it active, the user's Stop marks it inactive. It includes the external-LLM consent (see CLAUDE.md gotcha).
+- **Progress snapshot** is cached in memory and rebuilt each poller cycle or on demand — it costs ~2 Jira calls per step, too much to do on every 5 s UI refresh. `ui/<use_case>/selection.json` records which steps were ticked vs added as inputs (not derivable from `steps.json`).
+- **First-poll baseline**: `PollingStatusSource` only records a baseline on its first run; the UI surfaces that as a note when no checkpoint exists.
+- **Unverified**: the UI has been type-checked and built (`npm run build`) and its Vite proxy smoke-tested against the real backend, but not exercised in a browser or against live Jira at the time of writing; the Jira remote-link response shape it relies on is still an open item (DEPLOYMENT_GUIDE §5.5).

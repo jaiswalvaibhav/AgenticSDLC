@@ -110,6 +110,13 @@ uv run sdlc analyst-plan --use-case demo_order_fulfilment --step develop_solutio
 uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_solution_requirements --no-dry-run
 ```
 
+### Prefer a UI?
+
+`make api` and `make ui` start a small local web UI (React + FastAPI, `ui/` and `backend/`) that lists
+the workflow artifacts, auto-selects the inputs you need to provide, triggers the run and keeps polling
+Jira while showing live progress. You still attach artifacts and approve plans in Jira. See
+[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) §5.8.
+
 ### No Bedrock Claude model access yet?
 
 The analyst agent normally calls Claude through Bedrock (and so will the engineer/tester
@@ -180,6 +187,8 @@ Confluence/Jira/S3 calls — no real network or AWS account needed.
 
 ```
 src/sdlc/            the package: config, ports, adapters, workflow, analyst agent, aws/
+backend/sdlc_api/    the workflow UI's FastAPI backend (a thin layer over src/sdlc)
+ui/                  the workflow UI (React + Vite)
 config.yaml          generic config (profile, region, ids — no secrets)
 .env.example          → .env (gitignored): Atlassian credentials
 config/workflow.yaml  the lifecycle step registry

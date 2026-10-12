@@ -23,6 +23,7 @@ sample commands are show below.
 | Atlassian Cloud site (Confluence + Jira) with an API token ([id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens)) | everything |
 | `dot` binary (`brew install graphviz` / `apt install graphviz`) | only `sdlc seed`'s diagram generation |
 | Docker | only `profile: aws`'s `agentcore launch` container build |
+| Node.js + npm | only the optional workflow UI (§5.8) |
 
 ## 2. Install
 
@@ -276,6 +277,50 @@ uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_soluti
 uv run sdlc analyst-apply --use-case demo_order_fulfilment --step develop_solution_requirements --no-dry-run
 ```
 
+### 5.8 Optional: drive the workflow from the UI
+
+A small web UI replaces `workflow start` + `watch-progress` for the `local` profile. The backend
+(`backend/sdlc_api`, FastAPI) and the UI (`ui/`, React + Vite) are separate modules; the backend is
+a thin layer over the same code the CLI uses. **Local use only**: it binds `127.0.0.1` and has no auth.
+
+```bash
+make api    # backend on http://127.0.0.1:8000
+make ui     # UI on http://localhost:5173 (first run does npm install)
+```
+
+What you do:
+
+1. **Pick the use case** (profile `local`; `aws` is greyed out until `aws-deploy` has created the agent runtime).
+2. **Tick the artifacts to generate.** Each one's direct inputs are added automatically as *provide*.
+   Nothing downstream is added (unlike `workflow start --from`), and ticking a *provide* step turns it into
+   a *generate* step.
+3. **Check "Will create", then Trigger workflow.** This creates the epic and step tickets for real (same as
+   `workflow start --apply`) and starts the poller. If `EXTERNAL_LLM_PROVIDER` is set, tick the one-time
+   consent for billed calls.
+4. **Provide the inputs in Jira, not in the UI**: attach exactly one Confluence link or one
+   `.xlsx`/`.xlsm`/`.pdf`/`.docx`/`.csv` file to each *provide* ticket and mark it Done. Approval is also in
+   Jira (add `sdlc-approved`). The UI links to each ticket.
+5. **Watch the Progress table.** The poller runs the orchestrator (`sync_once`) every
+   `ui.poll_interval_seconds` (default 30), so as you finish inputs the workflow proceeds on its own.
+
+Good to know:
+
+- **Poller**: Start / Stop / Sync now in the header. It resumes after a backend restart unless you stopped it.
+  The one-time external-LLM consent is saved with it, so a restart resumes billed calls too; stop the poller
+  to revoke.
+- **One use case at a time**: triggering another replaces the polled one. Don't run `watch-progress`
+  alongside the UI — they share one Jira checkpoint.
+- **First poll is a baseline**: with no saved checkpoint, status changes made before the first poll aren't
+  seen (the UI shows a note). If you marked a step Done too early, reopen it and mark it Done again.
+- **`aws` profile**: the UI creates the tickets but does not poll — the scheduled Lambda does (§6.3).
+
+Suggested first run: (1) `uv run pytest` and `cd ui && npm run build`; (2) tick **Develop Solution
+Requirements** and check the preview (Generate: it; Provide: DDS, TDS); (3) trigger, then confirm the tickets
+exist and the header says *Polling*; (4) in Jira attach the DDS file and mark it Done — within one interval
+its row shows Done and "usable"; mark the TDS Done with nothing attached to see the reason and the comment,
+then link its page, reopen and mark it Done again — the agent runs and the row shows *plan ready*;
+(5) add `sdlc-approved` and watch it become *applied*; (6) restart `make api` and confirm polling resumes.
+
 ---
 
 ## 6. Profile B: `aws` — agent on AgentCore, orchestrator on a schedule
@@ -462,6 +507,8 @@ make jira-kb-create
 make jira-aws-sync
 make jira-search QUERY="..."
 make test
+make api    # workflow UI backend (§5.8)
+make ui     # workflow UI frontend
 ```
 
 ## 11. Quick reference: command → artifact produced
@@ -480,3 +527,4 @@ make test
 | `aws-destroy` | Reverses everything `aws-deploy` recorded |
 | `jira-sync` | `.data/corpus_jira/` Markdown mirror of a Jira epic tree |
 | `jira-aws-sync` | Jira-pipeline S3 objects + its own KB ingestion job |
+| `make api` + `make ui` | The workflow UI: pick artifacts, trigger, live progress (§5.8) |
