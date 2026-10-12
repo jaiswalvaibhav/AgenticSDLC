@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, AttachmentSource, pick_anchor_source
 from sdlc.ports import ObjectStore, TicketSystem
+from sdlc.wiring import jira_browse_url
 from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import WorkflowRegistry
 
@@ -75,7 +76,6 @@ def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: Ticket
     plan_ready = store.get_json(f"workflow/{use_case}/plan.json") is not None
     llm_usage = store.get_json(f"workflow/{use_case}/llm_usage.json") or {}
     done_status = orchestrator.load_terminology(use_case)["statuses"]["done"]
-    base_url = cfg["atlassian"]["base_url"].rstrip("/")
     feeds_automation = {dep for s in registry.all_steps() if s.automation for dep in s.inputs}
 
     rows = []
@@ -86,7 +86,7 @@ def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: Ticket
         issue = tickets.get_issue(key)
         rows.append({
             "step_id": step.id, "artifact": step.artifact, "key": key,
-            "jira_url": f"{base_url}/browse/{key}",
+            "jira_url": jira_browse_url(cfg, key),
             "role": "automated" if step.automation else ("provide" if step.id in provide else "generate"),
             "status": issue.status, "done": issue.status == done_status,
             "files": [a.title for a in issue.attachments],

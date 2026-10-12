@@ -17,6 +17,7 @@ from pathlib import Path
 import yaml
 
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, confluence_links_in_text, pick_anchor_source
+from sdlc.wiring import jira_project_key
 from sdlc.ports import AgentRuntime, Issue, ObjectStore, StatusEvent, TicketSystem, TransitionNotAvailable
 from sdlc.workflow.registry import Step, WorkflowRegistry
 
@@ -193,7 +194,7 @@ def handle_status_change(event: StatusEvent, *, tickets: TicketSystem, store: Ob
     use_case = _use_case_of(issue) or cfg["use_case"]
     statuses = load_terminology(use_case)["statuses"]
 
-    _rollup(event.issue_key, tickets=tickets, project_key=cfg["jira"]["project_key"],
+    _rollup(event.issue_key, tickets=tickets, project_key=jira_project_key(cfg),
             statuses=statuses, reopen_on_child_reopen=cfg["orchestrator"].get(
                 "reopen_parent_on_child_reopen", False), dry_run=dry_run)
 

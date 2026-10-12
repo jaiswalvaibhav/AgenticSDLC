@@ -4,7 +4,7 @@ Lambda (profile=aws) — this is the one-shot command the brief's EventBridge sc
 runs, kept free of CLI/Typer so the Lambda can import it directly.
 """
 from sdlc.adapters.jira_polling import PollingStatusSource
-from sdlc.wiring import agent_runtime, jira_client, object_store
+from sdlc.wiring import agent_runtime, jira_client, jira_project_key, object_store
 from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import WorkflowRegistry
 
@@ -14,7 +14,7 @@ def sync_once(cfg: dict, *, dry_run: bool) -> dict:
     store = object_store(cfg)
     registry = WorkflowRegistry.load()
     agent = agent_runtime(cfg, tickets, store)
-    status_source = PollingStatusSource(tickets, store, cfg["jira"]["project_key"])
+    status_source = PollingStatusSource(tickets, store, jira_project_key(cfg))
 
     events = status_source.poll(dry_run=dry_run)
     for event in events:

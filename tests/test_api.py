@@ -36,7 +36,7 @@ def test_meta_lists_use_cases_and_never_leaks_secrets(client, monkeypatch):
     assert response.json() == {
         "use_cases": ["demo_order_fulfilment"], "default_use_case": "demo_order_fulfilment",
         "profiles": ["local"], "default_profile": "local", "external_llm_provider": None,
-        "auto_confirm_external_llm": False, "jira_project_key": "DEMO", "jira_base_url": "https://x.atlassian.net"}
+        "auto_confirm_external_llm": False, "jira_mode": "real", "jira_project_key": "DEMO", "jira_base_url": "https://x.atlassian.net"}
 
 
 def test_meta_offers_aws_only_once_the_agent_runtime_is_deployed(cfg, monkeypatch):

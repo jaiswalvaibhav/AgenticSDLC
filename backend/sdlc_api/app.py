@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from sdlc.config import load_config
 from sdlc.sync_once import sync_once
-from sdlc.wiring import jira_client, object_store
+from sdlc.wiring import jira_client, jira_mode, jira_project_key, object_store
 from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import Step, WorkflowError, WorkflowRegistry
 
@@ -119,7 +119,8 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
             "default_profile": cfg["profile"],
             "external_llm_provider": os.environ.get("EXTERNAL_LLM_PROVIDER") or None,
             "auto_confirm_external_llm": auto_confirm,
-            "jira_project_key": cfg["jira"]["project_key"],
+            "jira_mode": jira_mode(cfg),
+            "jira_project_key": jira_project_key(cfg),
             "jira_base_url": cfg["atlassian"]["base_url"],
         }
 
@@ -157,7 +158,7 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         except requests.RequestException as exc:
             raise HTTPException(status_code=502, detail=f"Jira request failed: {exc}")
         generate, provide = [s.id for s in selection.selected], [s.id for s in selection.artifact_only]
-        remember_selection(run_store, body.use_case, generate, provide, cfg["jira"]["project_key"])
+        remember_selection(run_store, body.use_case, generate, provide, jira_project_key(cfg))
         snapshots.pop(body.use_case, None)
         if body.profile == "local":
             poller.start(body.use_case, body.profile, body.confirm_external_llm)
@@ -234,7 +235,7 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
         c = run_cfg(use_case, profile or cfg["profile"])
-        return run_info(store or object_store(c), use_case, cfg["jira"]["project_key"])
+        return run_info(store or object_store(c), use_case, jira_project_key(cfg))
 
     @app.post("/api/runs/{use_case}/reset")
     def reset(use_case: str, profile: str | None = None) -> dict:

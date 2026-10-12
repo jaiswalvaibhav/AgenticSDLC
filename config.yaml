@@ -9,7 +9,13 @@ atlassian:
 confluence:
   space_key: SPACE_KEY
 jira:
-  project_key: PROJECT_KEY
+  mode: mock   # mock = tickets in our own state, shown at /jira in the UI; real = Jira Cloud (needs atlassian.* and project_key)
+  project_key: PROJECT_KEY   # real mode only
+  mock:
+    project_key: MOCK
+    project_name: Mock SDLC
+    issue_types: [Epic, Story, Task, Bug, Subtask]
+    statuses: [To Do, In Progress, Done]   # board columns, in order
   components:
     engineer: Engineering
     tester: Testing

@@ -11,6 +11,7 @@ from sdlc.adapters.bedrock_kb import BedrockKnowledgeIndex
 from sdlc.adapters.confluence import ConfluenceClient
 from sdlc.adapters.jira import JiraClient
 from sdlc.adapters.local_store import LocalObjectStore
+from sdlc.adapters.mock_jira import MockJiraClient
 from sdlc.adapters.s3_store import S3ObjectStore
 
 
@@ -22,7 +23,33 @@ def confluence_client(cfg: dict) -> ConfluenceClient:
     )
 
 
-def jira_client(cfg: dict) -> JiraClient:
+def jira_mode(cfg: dict) -> str:
+    """`jira.mode`: "mock" (tickets in our own ObjectStore, shown by the UI's mock Jira) or
+    "real" (Jira Cloud). A config with no `mode` is real, as it was before the mock existed."""
+    mode = cfg["jira"].get("mode", "real")
+    if mode not in ("mock", "real"):
+        raise ValueError(f"jira.mode must be 'mock' or 'real', got {mode!r}")
+    return mode
+
+
+def jira_project_key(cfg: dict) -> str:
+    """The project tickets are created in: the mock's own key in mock mode."""
+    return cfg["jira"]["mock"]["project_key"] if jira_mode(cfg) == "mock" else cfg["jira"]["project_key"]
+
+
+def jira_browse_url(cfg: dict, key: str) -> str:
+    """Where a ticket opens: Jira's page, or (mock) the UI's own page, a path on the same origin."""
+    if jira_mode(cfg) == "mock":
+        return f"/jira/browse/{key}"
+    return f"{cfg['atlassian']['base_url'].rstrip('/')}/browse/{key}"
+
+
+def jira_client(cfg: dict) -> JiraClient | MockJiraClient:
+    if jira_mode(cfg) == "mock":
+        mock = cfg["jira"]["mock"]
+        return MockJiraClient(object_store(cfg), project_key=mock["project_key"],
+                               project_name=mock.get("project_name", "Mock SDLC"),
+                               issue_types=mock.get("issue_types"), statuses=mock.get("statuses"))
     atlassian = cfg["atlassian"]
     return JiraClient(
         base_url=atlassian["base_url"], email=atlassian["email"],
@@ -46,7 +73,7 @@ def object_store(cfg: dict):
     return LocalObjectStore(cfg["state_dir"])
 
 
-def agent_runtime(cfg: dict, tickets: JiraClient, store):
+def agent_runtime(cfg: dict, tickets, store):
     """local profile runs the analyst agent in-process. aws profile invokes the
     AgentCore Runtime deployed by aws-deploy (see infra/aws/templates/agent.yaml)."""
     if cfg["profile"] == "aws":

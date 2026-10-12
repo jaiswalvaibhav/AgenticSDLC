@@ -22,6 +22,7 @@ import yaml
 from sdlc.aws import cfn
 from sdlc.aws.ledger import Ledger, Resource
 from sdlc.config import save_aws_values
+from sdlc.wiring import jira_mode
 
 TEMPLATE_PATH = "infra/aws/templates/agent.yaml"
 ENTRYPOINT = "src/sdlc/agents/agentcore_app.py"
@@ -109,6 +110,7 @@ def deploy(cfg: dict, *, config_path: str = "config.yaml", dry_run: bool = True)
             "StateBucketArn": state_bucket_arn,
             "AtlassianBaseUrl": atlassian["base_url"], "AtlassianEmail": atlassian["email"],
             "AtlassianApiToken": atlassian["api_token"], "JiraProjectKey": cfg["jira"]["project_key"],
+            "JiraMode": jira_mode(cfg), "JiraMockProjectKey": cfg["jira"]["mock"]["project_key"],
         },
         tags=aws["tags"], dry_run=dry_run,
         secret_keys=frozenset({"AtlassianApiToken"}),

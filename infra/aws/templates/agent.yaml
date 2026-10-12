@@ -40,6 +40,13 @@ Parameters:
     NoEcho: true
   JiraProjectKey:
     Type: String
+  JiraMode:
+    Type: String
+    Default: real
+    AllowedValues: [mock, real]
+  JiraMockProjectKey:
+    Type: String
+    Default: MOCK
 
 Resources:
   AgentExecutionRole:
@@ -169,6 +176,8 @@ Resources:
           SDLC__ATLASSIAN__EMAIL: !Ref AtlassianEmail
           SDLC__ATLASSIAN__API_TOKEN: !Ref AtlassianApiToken
           SDLC__JIRA__PROJECT_KEY: !Ref JiraProjectKey
+          SDLC__JIRA__MODE: !Ref JiraMode
+          SDLC__JIRA__MOCK__PROJECT_KEY: !Ref JiraMockProjectKey
       Tags:
         - Key: project
           Value: !Ref ProjectTag
