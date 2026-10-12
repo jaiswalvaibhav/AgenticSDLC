@@ -47,7 +47,7 @@ export interface IssueDetail extends IssueSummary {
   description: string;
   reporter: string;
   created: string;
-  comments: { id: string; author: string; body: string; created: string }[];
+  comments: { id: string; author: string; body: string; created: string; updated?: string }[];
   attachments: { id: string; filename: string; mimeType: string; size: number; author: string; created: string; url: string }[];
   remote_links: { id: string; url: string; title: string }[];
   links: { type: string; direction: "inward" | "outward"; key: string; issue: IssueRef }[];

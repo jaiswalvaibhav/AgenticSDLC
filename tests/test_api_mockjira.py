@@ -275,3 +275,28 @@ def test_the_parent_rules_are_enforced_over_the_api(api):
     assert api.post(f"{API}/issues", json={"issue_type": "Subtask", "summary": "x"}).status_code == 400
     assert api.patch(f"{API}/issues/{epic}", json={"parent": story}).status_code == 400
     assert api.patch(f"{API}/issues/{story}", json={"parent": None}).status_code == 200
+
+
+def test_comments_can_be_edited_but_not_the_bots(api, jira):
+    key = new_issue(api)
+    jira.add_comment(key, "from the bot", dry_run=False)  # author "SDLC bot"
+    api.post(f"{API}/issues/{key}/comments", json={"body": "mine"})
+    ids = {c["author"]: c["id"] for c in api.get(f"{API}/issues/{key}").json()["comments"]}
+
+    assert api.patch(f"{API}/issues/{key}/comments/{ids['You']}", json={"body": "mine v2"}).status_code == 200
+    assert api.patch(f"{API}/issues/{key}/comments/{ids['SDLC bot']}", json={"body": "x"}).status_code == 400
+    assert api.patch(f"{API}/issues/{key}/comments/99", json={"body": "x"}).status_code == 404
+    bodies = [c["body"] for c in api.get(f"{API}/issues/{key}").json()["comments"]]
+    assert bodies == ["from the bot", "mine v2"]
+
+
+def test_images_are_served_inline_and_sandboxed_other_files_download(api):
+    key = new_issue(api)
+    api.post(f"{API}/issues/{key}/attachments", files={"file": ("shot.png", b"\x89PNG", "image/png")})
+    api.post(f"{API}/issues/{key}/attachments", files={"file": ("notes.docx", b"d", "application/x-docx")})
+    by_name = {a["filename"]: a["url"] for a in api.get(f"{API}/issues/{key}").json()["attachments"]}
+
+    image = api.get(by_name["shot.png"])
+    assert image.headers["content-disposition"].startswith("inline")
+    assert image.headers["content-security-policy"] == "sandbox" and image.headers["x-content-type-options"] == "nosniff"
+    assert api.get(by_name["notes.docx"]).headers["content-disposition"].startswith("attachment")

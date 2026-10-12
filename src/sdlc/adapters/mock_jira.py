@@ -108,7 +108,9 @@ class MockJiraClient:
             return result
         try:
             return self._modify(self._issue_key(key), wrapped)
-        except KeyError:
+        except KeyError as exc:
+            if exc.args != (self._issue_key(key),):  # raised by `mutate` itself (e.g. no such comment)
+                raise
             raise KeyError(f"issue {key} not found") from None
 
     def _log(self, doc: dict, **change) -> None:
@@ -420,6 +422,17 @@ class MockJiraClient:
             if change:
                 self._log(doc, **change)
         self._modify_issue(key, apply)
+
+    def update_comment(self, key: str, comment_id: str, body: str) -> None:
+        """Only the comment's own author can edit it (the UI user's, not the bot's)."""
+        def edit(doc):
+            comment = next((c for c in doc["comments"] if c["id"] == comment_id), None)
+            if comment is None:
+                raise KeyError(f"comment {comment_id} not found")
+            if comment["author"] != self.author:
+                raise ValueError("you can only edit your own comments")
+            comment.update(body=body, updated=self._stamp())
+        self._modify_issue(key, edit)
 
     def delete_comment(self, key: str, comment_id: str) -> None:
         self._modify_issue(key, lambda d: d.update(

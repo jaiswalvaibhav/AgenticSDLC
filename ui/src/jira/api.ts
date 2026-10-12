@@ -21,12 +21,14 @@ export const transition = (key: string, status: string) => send("POST", `/issues
 export const addLabel = (key: string, label: string) => send("POST", `/issues/${enc(key)}/labels`, { label });
 export const removeLabel = (key: string, label: string) => send("DELETE", `/issues/${enc(key)}/labels/${enc(label)}`);
 export const addComment = (key: string, body: string) => send("POST", `/issues/${enc(key)}/comments`, { body });
+export const editComment = (key: string, id: string, body: string) => send("PATCH", `/issues/${enc(key)}/comments/${enc(id)}`, { body });
 export const deleteComment = (key: string, id: string) => send("DELETE", `/issues/${enc(key)}/comments/${enc(id)}`);
 export const uploadAttachment = (key: string, file: File) => {
   const form = new FormData(); // no JSON content type: the browser sets the multipart boundary
   form.append("file", file);
-  return request(`/mockjira/issues/${enc(key)}/attachments${q()}`, { method: "POST", body: form });
+  return request<{ id: string; filename: string }>(`/mockjira/issues/${enc(key)}/attachments${q()}`, { method: "POST", body: form });
 };
+export const attachmentUrl = (key: string, id: string) => `/api/mockjira/issues/${enc(key)}/attachments/${enc(id)}${q()}`;
 export const deleteAttachment = (key: string, id: string) => send("DELETE", `/issues/${enc(key)}/attachments/${enc(id)}`);
 export const addWebLink = (key: string, url: string, title: string) => send("POST", `/issues/${enc(key)}/weblinks`, { url, title });
 export const deleteWebLink = (key: string, id: string) => send("DELETE", `/issues/${enc(key)}/weblinks/${enc(id)}`);

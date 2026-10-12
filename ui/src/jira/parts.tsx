@@ -1,6 +1,8 @@
 import type { BoardView, IssueSummary } from "./types";
 
 export const isSubtask = (i: { issuetype: string }) => ["subtask", "sub-task"].includes(i.issuetype.toLowerCase());
+// The name the UI writes comments and history as (the backend's acting_as("You")): only its own comments are editable.
+export const ME = "You";
 export const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // first status = to do, last = done, anything between = in progress (like Jira's status categories)

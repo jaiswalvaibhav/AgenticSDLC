@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import * as api from "./api";
+import { CommentBody, CommentBox } from "./Comments";
 import { ParentPicker } from "./ParentPicker";
-import { Avatar, Lozenge, Priority, TypeIcon, dateTime, isSubtask, message, statusCategory } from "./parts";
+import { Avatar, Lozenge, ME, Priority, TypeIcon, dateTime, isSubtask, message, statusCategory } from "./parts";
 import { Link, navigate } from "./route";
 import type { BoardView, IssueDetail } from "./types";
 
@@ -46,7 +47,7 @@ export function IssueView({ issueKey, board, reload }: Props) {
   const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"comments" | "history">("comments");
-  const [comment, setComment] = useState("");
+  const [editing, setEditing] = useState<string | null>(null); // id of the comment being edited
   const [labelDraft, setLabelDraft] = useState("");
   const [linkRelation, setLinkRelation] = useState<"blocks" | "is blocked by">("blocks");
   const [linkTarget, setLinkTarget] = useState("");
@@ -192,18 +193,24 @@ export function IssueView({ issueKey, board, reload }: Props) {
         </div>
         {tab === "comments" ? (
           <>
-            <form className="mj-add-comment" onSubmit={submit(() => api.addComment(issue.key, comment.trim()), () => setComment(""))}>
-              <textarea rows={3} placeholder="Add a comment…" value={comment} onChange={(e) => setComment(e.target.value)} />
-              <button className="primary" disabled={!comment.trim()}>Comment</button>
-            </form>
+            <CommentBox issueKey={issue.key} submitLabel="Comment" clearOnSubmit
+              placeholder="Add a comment… (paste or drop images here)"
+              onSubmit={async (body) => { await api.addComment(issue.key, body); await Promise.all([load(), reload()]); }} />
             {issue.comments.length === 0 && <p className="muted">No comments yet.</p>}
             {[...issue.comments].reverse().map((c) => (
               <div key={c.id} className="mj-comment">
                 <Avatar name={c.author} />
-                <div>
-                  <strong>{c.author}</strong> <span className="muted small">{dateTime(c.created)}</span>{" "}
-                  <button className="link-button" onClick={() => act(() => api.deleteComment(issue.key, c.id))}>Delete</button>
-                  <p>{c.body}</p>
+                <div className="mj-comment-main">
+                  <strong>{c.author}</strong> <span className="muted small">{dateTime(c.created)}</span>
+                  {c.updated && <span className="muted small" title={dateTime(c.updated)}> (edited)</span>}{" "}
+                  {c.author === ME && editing !== c.id && <button className="link-button" onClick={() => setEditing(c.id)}>Edit</button>}{" "}
+                  <button className="link-button" onClick={() => window.confirm("Delete this comment?") && act(() => api.deleteComment(issue.key, c.id))}>Delete</button>
+                  {editing === c.id ? (
+                    <CommentBox issueKey={issue.key} initial={c.body} submitLabel="Save" onCancel={() => setEditing(null)}
+                      onSubmit={async (body) => { await api.editComment(issue.key, c.id, body); setEditing(null); await Promise.all([load(), reload()]); }} />
+                  ) : (
+                    <CommentBody issueKey={issue.key} body={c.body} />
+                  )}
                 </div>
               </div>
             ))}

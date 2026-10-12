@@ -160,6 +160,12 @@ def build_router(client_for, changed) -> APIRouter:
         changed()
         return {"key": key}
 
+    @router.patch("/issues/{key}/comments/{comment_id}")
+    def edit_comment(key: str, comment_id: str, body: Comment, profile: str | None = None) -> dict:
+        _do(client_for(profile).update_comment, key, comment_id, body.body)
+        changed()
+        return {"key": key}
+
     @router.delete("/issues/{key}/comments/{comment_id}")
     def delete_comment(key: str, comment_id: str, profile: str | None = None) -> dict:
         _do(client_for(profile).delete_comment, key, comment_id)
@@ -180,9 +186,13 @@ def build_router(client_for, changed) -> APIRouter:
         att = next((a for a in _do(jira.get_attachments, key) if a.attachment_id == attachment_id), None)
         if att is None:
             raise HTTPException(status_code=404, detail=f"attachment {attachment_id} not found")
-        return Response(content=_do(jira.download_attachment, att),
-                        media_type=att.media_type or "application/octet-stream",
-                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(att.title)}"})
+        media_type = att.media_type or "application/octet-stream"
+        # images display in place (comments embed them); everything else downloads. Sandboxed and
+        # un-sniffed, so an uploaded SVG or HTML file can't run script on this origin.
+        disposition = "inline" if media_type.startswith("image/") else "attachment"
+        return Response(content=_do(jira.download_attachment, att), media_type=media_type,
+                        headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(att.title)}",
+                                 "Content-Security-Policy": "sandbox", "X-Content-Type-Options": "nosniff"})
 
     @router.delete("/issues/{key}/attachments/{attachment_id}")
     def delete_attachment(key: str, attachment_id: str, profile: str | None = None) -> dict:

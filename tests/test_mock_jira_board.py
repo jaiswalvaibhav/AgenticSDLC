@@ -176,3 +176,22 @@ def test_acting_as_writes_under_another_author(jira):
     jira.acting_as("You").update_fields(key, summary="x")
     doc = jira._doc(key)
     assert doc["comments"][0]["author"] == "You" and doc["changelog"][0]["author"] == "You"
+
+
+def test_update_comment_only_for_its_own_author(jira):
+    key = make(jira)
+    jira.add_comment(key, "bot says", dry_run=False)            # author: SDLC bot
+    jira.acting_as("You").add_comment(key, "mine", dry_run=False)
+    you = jira.acting_as("You")
+
+    you.update_comment(key, "2", "mine, edited")
+
+    doc = jira._doc(key)
+    assert doc["comments"][1]["body"] == "mine, edited" and doc["comments"][1]["updated"]
+    assert "updated" not in doc["comments"][0]
+    with pytest.raises(ValueError, match="your own"):
+        you.update_comment(key, "1", "hijack")
+    with pytest.raises(KeyError, match="comment 9"):  # not rewrapped as "issue not found"
+        you.update_comment(key, "9", "x")
+    with pytest.raises(KeyError, match="issue MOCK-99"):
+        you.update_comment("MOCK-99", "1", "x")
