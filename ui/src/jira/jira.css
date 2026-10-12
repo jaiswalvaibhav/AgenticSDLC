@@ -1,0 +1,97 @@
+/* Mock Jira. Reuses the workflow page's colour tokens (styles.css), so light/dark follow it. */
+.mj-app { min-height: 100vh; display: flex; flex-direction: column; }
+.mj-topbar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.mj-logo { color: var(--accent); font-size: 16px; }
+.mj-spacer { flex: 1; }
+.mj-body { display: flex; flex: 1; min-height: 0; }
+.mj-sidebar { width: 220px; flex-shrink: 0; padding: 12px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+.mj-sidebar a { padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; }
+.mj-sidebar a:hover { background: var(--bg); }
+.mj-sidebar a.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 600; }
+.mj-project { display: flex; gap: 8px; align-items: center; padding: 4px 8px 12px; }
+.mj-project-icon { width: 32px; height: 32px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; }
+.mj-content { flex: 1; min-width: 0; padding: 16px 20px 40px; }
+@media (max-width: 700px) { .mj-body { flex-direction: column; } .mj-sidebar { width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--border); } }
+
+.mj-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; }
+textarea { width: 100%; resize: vertical; }
+
+.mj-container { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 14px; padding: 6px 8px 8px; }
+.mj-container.over { outline: 2px dashed var(--accent); }
+.mj-container-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 4px 8px; }
+.mj-goal { flex-basis: 100%; }
+.mj-sprint-state { padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; background: var(--border); }
+.mj-sprint-state.active { background: var(--ok); color: #fff; }
+.mj-empty { margin: 6px 4px 10px; padding: 14px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 4px; }
+.mj-create { padding: 4px; margin-top: 4px; }
+
+.mj-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 2px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; cursor: grab; }
+.mj-row.sub { margin-left: 28px; cursor: default; background: transparent; }
+.mj-row.over { border-top: 3px solid var(--accent); }
+.mj-row.dragging, .mj-card.dragging { opacity: 0.4; }
+.mj-key { white-space: nowrap; text-decoration: none; font-weight: 600; }
+.mj-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mj-epic { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; padding: 0 6px; border-radius: 3px; background: var(--chip-auto); }
+.mj-label { display: inline-block; font-size: 11px; padding: 0 6px; margin-right: 4px; border-radius: 3px; background: var(--border); }
+.mj-points, .mj-pill { min-width: 22px; text-align: center; font-size: 11px; border-radius: 10px; background: var(--border); padding: 0 6px; }
+.mj-points:empty { visibility: hidden; }
+
+.mj-type { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 3px; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; background: #2684ff; }
+.mj-type.epic { background: #904ee2; } .mj-type.story { background: #36b37e; } .mj-type.bug { background: #e5493a; }
+.mj-type.task { background: #4bade8; } .mj-type.subtask { background: #6b9fd8; }
+.mj-avatar { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.mj-avatar.none { background: var(--border); color: var(--muted); }
+.mj-priority { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 10px; font-weight: 700; color: #fff; background: #998dd9; }
+.mj-priority.highest, .mj-priority.high { background: #e5493a; } .mj-priority.medium { background: #f79232; } .mj-priority.low { background: #2d8738; }
+
+.mj-lozenge, .mj-status-select { font-size: 11px; font-weight: 700; text-transform: uppercase; border-radius: 3px; padding: 2px 6px; border: 0; }
+.mj-lozenge.todo, .mj-status-select.todo { background: #dfe1e6; color: #42526e; }
+.mj-lozenge.progress, .mj-status-select.progress { background: #cce0ff; color: #0747a6; }
+.mj-lozenge.done, .mj-status-select.done { background: #c8f0d8; color: #006644; }
+@media (prefers-color-scheme: dark) {
+  .mj-lozenge.todo, .mj-status-select.todo { background: #3a4150; color: #cfd6e4; }
+  .mj-lozenge.progress, .mj-status-select.progress { background: #1f3a68; color: #b8d2ff; }
+  .mj-lozenge.done, .mj-status-select.done { background: #1d4a33; color: #b6ecd0; }
+}
+
+.mj-board-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.mj-board-head h2 { margin: 0; }
+.mj-columns { display: grid; gap: 10px; align-items: start; overflow-x: auto; }
+.mj-column { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px 10px; min-height: 240px; }
+.mj-column.over { outline: 2px dashed var(--accent); }
+.mj-column h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 4px 2px 8px; }
+.mj-card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-bottom: 6px; cursor: grab; }
+.mj-card-summary { margin-bottom: 6px; overflow-wrap: anywhere; }
+.mj-card-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.mj-empty-state { text-align: center; padding: 60px 0; }
+.mj-button-link { display: inline-block; padding: 5px 12px; border-radius: 6px; background: var(--accent); color: #fff; text-decoration: none; }
+
+.mj-issue { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; }
+@media (max-width: 900px) { .mj-issue { grid-template-columns: 1fr; } }
+.mj-issue h1 { font-size: 22px; margin: 6px 0 12px; }
+.mj-issue h3 { font-size: 13px; text-transform: uppercase; color: var(--muted); margin: 18px 0 6px; }
+.mj-crumbs { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.mj-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mj-refs { list-style: none; margin: 0; padding: 0; }
+.mj-refs li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-bottom: 0; background: var(--panel); }
+.mj-refs li:last-child { border-bottom: 1px solid var(--border); }
+.mj-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.mj-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; }
+.mj-tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
+.mj-comment { display: flex; gap: 10px; margin-bottom: 12px; }
+.mj-comment p { margin: 2px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mj-issue-side { align-self: start; }
+.mj-side-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.mj-status-select { padding: 6px 8px; cursor: pointer; }
+button.mj-danger { color: var(--err); border-color: var(--err); }
+.mj-details { display: grid; grid-template-columns: 110px 1fr; gap: 8px 8px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; margin: 0; }
+.mj-details dt { color: var(--muted); font-size: 12px; }
+.mj-details dd { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; overflow-wrap: anywhere; }
+
+.mj-dialog { max-width: 560px; max-height: 92vh; overflow: auto; }
+.mj-form { display: flex; flex-direction: column; gap: 10px; }
+.mj-form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.mj-form input, .mj-form select, .mj-form textarea { color: var(--text); font-size: 14px; }
+.mj-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mj-form .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }

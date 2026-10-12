@@ -1,6 +1,6 @@
 import type { Meta, PollerState, Preview, Progress, RunInfo, RunRequest, RunResult, Step } from "./types";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
     headers: init?.body ? { "Content-Type": "application/json" } : undefined,

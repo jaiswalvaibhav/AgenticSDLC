@@ -45,9 +45,10 @@ def jira_project_key(cfg: dict) -> str:
 
 
 def jira_browse_url(cfg: dict, key: str) -> str:
-    """Where a ticket opens: Jira's page, or (mock) the UI's own page, a path on the same origin."""
+    """Where a ticket opens: Jira's page, or (mock) the UI's own page, a path on the same origin
+    (with ?profile= when the board isn't the local one, so the page reads the right store)."""
     if jira_mode(cfg) == "mock":
-        return f"/jira/browse/{key}"
+        return f"/jira/browse/{key}" + (f"?profile={cfg['profile']}" if cfg.get("profile") != "local" else "")
     return f"{cfg['atlassian']['base_url'].rstrip('/')}/browse/{key}"
 
 

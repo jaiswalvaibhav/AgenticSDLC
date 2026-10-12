@@ -22,6 +22,11 @@ def test_mock_mode_builds_the_mock_from_its_own_config(cfg):
     assert jira_project_key(cfg) == "MOCK" and jira_browse_url(cfg, "MOCK-1") == "/jira/browse/MOCK-1"
 
 
+def test_mock_browse_url_names_the_profile_unless_it_is_local(cfg):
+    cfg["profile"] = "aws"
+    assert jira_browse_url(cfg, "MOCK-1") == "/jira/browse/MOCK-1?profile=aws"
+
+
 def test_mock_mode_shares_the_state_dir_with_the_run(cfg, tmp_path):
     jira_client(cfg).create_issue("Epic", "e", dry_run=False)
     assert (tmp_path / "mock_jira/MOCK/issues/MOCK-1.json").exists()

@@ -6,6 +6,7 @@ export interface Meta {
   default_profile: string;
   external_llm_provider: string | null;
   auto_confirm_external_llm: boolean;
+  jira_mode: "mock" | "real";
   jira_project_key: string;
   jira_base_url: string;
 }

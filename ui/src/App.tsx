@@ -204,6 +204,10 @@ export default function App() {
             </span>
           </div>
         )}
+        {meta?.jira_mode === "mock" && (
+          <a href={`/jira/backlog${profile === meta.default_profile ? "" : `?profile=${profile}`}`} target="_blank"
+            rel="noreferrer">Open Mock Jira ↗</a>
+        )}
         <PollerStatus poller={poller} busy={busy} onStart={startPolling}
           onStop={() => act(api.stopPoller)} onSyncNow={() => act(api.syncNow)} />
       </header>
