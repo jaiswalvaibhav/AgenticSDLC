@@ -1,3 +1,6 @@
+import threading
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -22,7 +25,7 @@ def cfg():
 
 @pytest.fixture
 def client(cfg):
-    return TestClient(create_app(cfg=cfg, registry=WorkflowRegistry.load()))
+    return TestClient(create_app(cfg=cfg, registry=WorkflowRegistry.load(), store=FakeObjectStore()))
 
 
 def test_meta_lists_use_cases_and_never_leaks_secrets(client, monkeypatch):
@@ -39,7 +42,8 @@ def test_meta_lists_use_cases_and_never_leaks_secrets(client, monkeypatch):
 def test_meta_offers_aws_only_once_the_agent_runtime_is_deployed(cfg, monkeypatch):
     monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "anthropic")
     cfg["aws"]["agent_runtime_arn"] = "arn:aws:bedrock-agentcore:ap-southeast-2:1:runtime/x"
-    body = TestClient(create_app(cfg=cfg, registry=WorkflowRegistry.load())).get("/api/meta").json()
+    app = create_app(cfg=cfg, registry=WorkflowRegistry.load(), store=FakeObjectStore())
+    body = TestClient(app).get("/api/meta").json()
     assert body["profiles"] == ["local", "aws"] and body["external_llm_provider"] == "anthropic"
 
 
@@ -78,10 +82,21 @@ def store():
 
 
 @pytest.fixture
-def live(cfg, tickets, store, monkeypatch):
-    """A client wired to fakes — nothing here can reach real Jira or AWS."""
+def gate():
+    return threading.Event()
+
+
+@pytest.fixture
+def live(cfg, tickets, store, gate, monkeypatch):
+    """A client wired to fakes — nothing here can reach real Jira or AWS. A local run starts
+    the poller; its sync is a stub that blocks until teardown, so no cycle's snapshot
+    rebuild races the assertions below."""
     monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
-    return TestClient(create_app(cfg=cfg, registry=WorkflowRegistry.load(), tickets=tickets, store=store))
+    app = create_app(cfg=cfg, registry=WorkflowRegistry.load(), tickets=tickets, store=store,
+                     sync=lambda c, dry_run: gate.wait(5) and {"status_events": 0})
+    yield TestClient(app)
+    gate.set()
+    app.state.poller.shutdown(wait=2)
 
 
 def _run(client, **overrides):
@@ -188,3 +203,88 @@ def test_later_run_keeps_earlier_roles(live):
     assert rows["develop_solution_requirements"] == "automated"
     assert rows["data_design_solution"] == "provide"
     assert rows["data_contract"] == "generate"
+
+
+# ------------------------------------------------------------------------ poller --
+def _wait(condition, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_local_run_starts_the_poller_for_that_use_case(live):
+    body = _run(live).json()
+
+    assert body["poller"]["active"] is True and body["poller"]["use_case"] == UC
+    assert body["poller"]["profile"] == "local"
+    assert live.get("/api/poller").json()["interval_seconds"] == 30
+    assert live.get(f"/api/runs/{UC}/progress").json()["poller"]["active"] is True
+
+
+def test_poller_can_be_stopped_started_and_synced_now(live):
+    _run(live)
+    assert live.post("/api/poller/sync-now").status_code == 200
+
+    stopped = live.post("/api/poller/stop").json()
+    assert stopped["active"] is False and stopped["use_case"] is None
+    assert live.post("/api/poller/sync-now").status_code == 409
+
+    restarted = live.post("/api/poller/start", json={"use_case": UC}).json()
+    assert restarted["active"] is True
+
+
+def test_poller_start_validates_like_a_run(live, monkeypatch):
+    assert live.post("/api/poller/start", json={"use_case": "nope"}).status_code == 400
+    assert live.post("/api/poller/start", json={"use_case": UC, "profile": "aws"}).status_code == 400
+
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "gemini")
+    refused = live.post("/api/poller/start", json={"use_case": UC})
+    assert refused.status_code == 400 and "confirm" in refused.json()["detail"]
+    assert live.post("/api/poller/start", json={"use_case": UC, "confirm_external_llm": True}).status_code == 200
+
+
+def test_aws_run_does_not_start_a_poller(cfg, tickets, store, monkeypatch):
+    monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
+    cfg["aws"]["agent_runtime_arn"] = "arn:aws:bedrock-agentcore:ap-southeast-2:1:runtime/x"
+    client = TestClient(create_app(cfg=cfg, registry=WorkflowRegistry.load(), tickets=tickets, store=store,
+                                   sync=lambda c, dry_run: pytest.fail("the Lambda polls aws, not the UI")))
+
+    body = _run(client, profile="aws").json()
+
+    assert body["poller"]["active"] is False
+
+
+def test_poller_cycles_sync_with_the_runs_cfg_and_rebuild_the_snapshot(cfg, tickets, store, monkeypatch):
+    monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
+    cfg["ui"] = {"poll_interval_seconds": 0.01}
+    calls = []
+    app = create_app(cfg=cfg, registry=WorkflowRegistry.load(), tickets=tickets, store=store,
+                     sync=lambda c, dry_run: calls.append((c["use_case"], c["profile"],
+                                                           c["external_llm_confirmed"], dry_run)) or {})
+    with TestClient(app) as client:
+        steps = _run(client, confirm_external_llm=True).json()["steps"]
+        assert _wait(lambda: client.get("/api/poller").json()["cycles"] >= 2)
+        tickets.transition_issue(steps["data_design_solution"], "Done", dry_run=False)
+        # no manual refresh: a poller cycle rebuilds the cached snapshot
+        assert _wait(lambda: any(r["done"] for r in client.get(f"/api/runs/{UC}/progress").json()["steps"]))
+    assert calls[0] == (UC, "local", True, False)  # live (dry_run=False), with the one-time consent
+
+
+def test_backend_restart_resumes_a_running_poller_but_not_a_stopped_one(cfg, tickets, store, monkeypatch):
+    monkeypatch.delenv("EXTERNAL_LLM_PROVIDER", raising=False)
+    cfg["ui"] = {"poll_interval_seconds": 3600}
+
+    def boot():
+        return create_app(cfg=cfg, registry=WorkflowRegistry.load(), tickets=tickets, store=store,
+                          sync=lambda c, dry_run: {})
+
+    with TestClient(boot()) as first:
+        _run(first)
+    with TestClient(boot()) as second:  # server shut down while polling -> resumes
+        assert second.get("/api/poller").json()["active"] is True
+        second.post("/api/poller/stop")
+    with TestClient(boot()) as third:  # the user stopped it -> stays stopped
+        assert third.get("/api/poller").json()["active"] is False

@@ -212,7 +212,7 @@ User confirmed these before any code was written, per BRIEF.md's own instruction
 - **Formats**: Confluence → existing reader. xlsx/xlsm → openpyxl `read_only`, one CSV section per sheet (sheet name = `source_section`). docx → python-docx, split at Heading 1–3, tables as ` | ` rows, images kept. csv → text. pdf → native Converse document block (works on Bedrock and the Anthropic stopgap). xlsx/docx are converted rather than sent natively because the installed Strands `AnthropicModel` raises TypeError on them (only pdf/csv/html/md/txt are accepted; `strands/models/anthropic.py:70`). `.xls`/`.doc` unsupported.
 - **Not truncating**: above `analyst.max_anchor_chars` (default 400000) or `max_pdf_bytes` (default 4500000 — placeholder, set to Bedrock's documented per-document limit) the step blocks with a per-section size breakdown. Split-and-merge (one LLM call per sheet group) is deferred until a real DDS exceeds the budget.
 - **Still search-free**: anchors are read in full, never via `search_knowledge` — traceability (`source_doc`/`source_section`) needs the complete, ordered source.
-- **Unverified**: the Jira remote-link list response shape (Atlassian docs page truncated when fetched) — pinned by a mocked test only.
+- **Unverified**: the Jira remote-link list response shape (Atlassian docs page truncated when fetched) — pinned by a mocked test only. Tracked as an open item in `docs/DEPLOYMENT_GUIDE.md` §5.5 (with the check to run and what to update once confirmed).
 
 
 ## Decisions (workflow.yaml renames — 2026-10-11)

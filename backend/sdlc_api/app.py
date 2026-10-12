@@ -1,12 +1,13 @@
 """Workflow UI backend: a thin FastAPI layer over the existing `sdlc` package. No
 business logic lives here — selection is WorkflowRegistry.resolve_targets, a run is
-orchestrator.workflow_start, and progress is built by progress.py from Jira + the
-ObjectStore. (The background poller is wired in by a later step.)
+orchestrator.workflow_start, progress is built by progress.py from Jira + the ObjectStore,
+and poller.py keeps sdlc.sync_once running in the background after a local-profile trigger.
 
 Local use only: bind 127.0.0.1 (see Makefile `api`); there is no auth. Secrets never
 leave this process — routes return only the specific fields they name, never cfg.
 """
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import requests
@@ -14,10 +15,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from sdlc.config import load_config
+from sdlc.sync_once import sync_once
 from sdlc.wiring import jira_client, object_store
 from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import Step, WorkflowError, WorkflowRegistry
 
+from sdlc_api.poller import Poller
 from sdlc_api.progress import build_progress, remember_selection
 
 
@@ -25,11 +28,14 @@ class PreviewRequest(BaseModel):
     targets: list[str]
 
 
-class RunRequest(BaseModel):
+class PollerRequest(BaseModel):
     use_case: str
-    targets: list[str]
     profile: str = "local"
     confirm_external_llm: bool = False
+
+
+class RunRequest(PollerRequest):
+    targets: list[str]
 
 
 def _step(step: Step) -> dict:
@@ -47,27 +53,55 @@ def _profiles(cfg: dict) -> list[str]:
 
 
 def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None, *,
-                tickets=None, store=None) -> FastAPI:
+                tickets=None, store=None, sync=None) -> FastAPI:
     """A factory (run with `uvicorn --factory`) so importing this module never reads
-    config; tests pass their own cfg/registry and fake tickets/store (otherwise built
+    config; tests pass their own cfg/registry and fake tickets/store/sync (otherwise built
     from cfg via sdlc.wiring, per run, so the chosen profile picks local vs S3 state)."""
     cfg = cfg if cfg is not None else load_config()
     registry = registry or WorkflowRegistry.load()
-    app = FastAPI(title="Agentic SDLC workflow UI")
     snapshots: dict[str, dict] = {}  # use_case -> last progress snapshot (rebuilt on demand)
 
     def run_cfg(use_case: str, profile: str, **extra) -> dict:
         return {**cfg, "use_case": use_case, "profile": profile, **extra}
 
-    def refresh(use_case: str, profile: str) -> dict:
+    def rebuild(use_case: str, profile: str) -> dict:
         c = run_cfg(use_case, profile)
+        snapshots[use_case] = build_progress(
+            use_case=use_case, registry=registry, tickets=tickets or jira_client(c),
+            store=store or object_store(c), cfg=c)
+        return snapshots[use_case]
+
+    def refresh(use_case: str, profile: str) -> dict:
         try:
-            snapshots[use_case] = build_progress(
-                use_case=use_case, registry=registry, tickets=tickets or jira_client(c),
-                store=store or object_store(c), cfg=c)
+            return rebuild(use_case, profile)
         except requests.RequestException as exc:
             raise HTTPException(status_code=502, detail=f"Jira request failed: {exc}")
-        return snapshots[use_case]
+
+    # the poller's own state is the laptop UI process's, so it always lives in the local store
+    poller = Poller(cfg=cfg, sync=sync or sync_once, on_cycle=rebuild,
+                    state_store=store or object_store(run_cfg(cfg["use_case"], "local")),
+                    interval=cfg.get("ui", {}).get("poll_interval_seconds", 30))
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        poller.resume()
+        yield
+        poller.shutdown()
+
+    app = FastAPI(title="Agentic SDLC workflow UI", lifespan=lifespan)
+    app.state.poller = poller
+
+    def check_request(body: PollerRequest) -> None:
+        if body.use_case not in _use_cases():
+            raise HTTPException(status_code=400, detail=f"unknown use case: {body.use_case}")
+        if body.profile not in _profiles(cfg):
+            raise HTTPException(status_code=400, detail=f"profile {body.profile!r} is not available")
+        if (body.profile == "local" and os.environ.get("EXTERNAL_LLM_PROVIDER")
+                and not body.confirm_external_llm):
+            raise HTTPException(
+                status_code=400,
+                detail="EXTERNAL_LLM_PROVIDER is set: calls are billed to your own account. "
+                       "Confirm once at trigger (confirm_external_llm).")
 
     @app.get("/api/meta")
     def meta() -> dict:
@@ -98,17 +132,9 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
     @app.post("/api/runs")
     def start_run(body: RunRequest) -> dict:
         """Creates the epic + step tickets for the ticked steps (live Jira writes — the UI
-        previews first, see /api/preview) and remembers which steps were ticked."""
-        if body.use_case not in _use_cases():
-            raise HTTPException(status_code=400, detail=f"unknown use case: {body.use_case}")
-        if body.profile not in _profiles(cfg):
-            raise HTTPException(status_code=400, detail=f"profile {body.profile!r} is not available")
-        if (body.profile == "local" and os.environ.get("EXTERNAL_LLM_PROVIDER")
-                and not body.confirm_external_llm):
-            raise HTTPException(
-                status_code=400,
-                detail="EXTERNAL_LLM_PROVIDER is set: calls are billed to your own account. "
-                       "Confirm once at trigger (confirm_external_llm).")
+        previews first, see /api/preview), remembers which steps were ticked and, for the
+        local profile, starts the poller (the aws profile's Lambda already polls)."""
+        check_request(body)
         try:
             selection = registry.resolve_targets(body.targets)
         except WorkflowError as exc:
@@ -125,7 +151,10 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         generate, provide = [s.id for s in selection.selected], [s.id for s in selection.artifact_only]
         remember_selection(run_store, body.use_case, generate, provide)
         snapshots.pop(body.use_case, None)
-        return {"use_case": body.use_case, "steps": steps_map, "generate": generate, "provide": provide}
+        if body.profile == "local":
+            poller.start(body.use_case, body.profile, body.confirm_external_llm)
+        return {"use_case": body.use_case, "steps": steps_map, "generate": generate, "provide": provide,
+                "poller": poller.snapshot()}
 
     @app.get("/api/runs/{use_case}/progress")
     def progress(use_case: str, profile: str | None = None) -> dict:
@@ -133,12 +162,37 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         each time); built on first request. POST .../refresh rebuilds it."""
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
-        return snapshots.get(use_case) or refresh(use_case, profile or cfg["profile"])
+        return {**(snapshots.get(use_case) or refresh(use_case, profile or cfg["profile"])),
+                "poller": poller.snapshot()}
 
     @app.post("/api/runs/{use_case}/refresh")
     def refresh_progress(use_case: str, profile: str | None = None) -> dict:
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
-        return refresh(use_case, profile or cfg["profile"])
+        return {**refresh(use_case, profile or cfg["profile"]), "poller": poller.snapshot()}
+
+    @app.get("/api/poller")
+    def poller_status() -> dict:
+        return poller.snapshot()
+
+    @app.post("/api/poller/start")
+    def poller_start(body: PollerRequest) -> dict:
+        check_request(body)
+        if body.profile != "local":
+            raise HTTPException(status_code=400, detail="the aws profile is polled by the scheduled "
+                                                        "orchestrator Lambda, not by the UI")
+        poller.start(body.use_case, body.profile, body.confirm_external_llm)
+        return poller.snapshot()
+
+    @app.post("/api/poller/stop")
+    def poller_stop() -> dict:
+        poller.stop()
+        return poller.snapshot()
+
+    @app.post("/api/poller/sync-now")
+    def poller_sync_now() -> dict:
+        if not poller.sync_now():
+            raise HTTPException(status_code=409, detail="the poller is not running")
+        return poller.snapshot()
 
     return app

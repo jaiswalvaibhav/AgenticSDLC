@@ -214,6 +214,28 @@ Done. If a ticket is marked Done with nothing usable, the orchestrator comments 
 afterwards fires no status event, so move it back to In Progress and mark it Done again.
 Anchors above `analyst.max_anchor_chars` / `max_pdf_bytes` (`config.yaml`) block rather than truncate.
 
+> **Open verification item — Jira remote-link response shape: UNVERIFIED** (as of 2026-10-12).
+> Anchor lookup, the "Marked Done but no usable artifact" check and the UI's progress view all
+> call `JiraClient.get_remote_links`, which assumes `GET /rest/api/3/issue/{key}/remotelink`
+> returns a top-level array of `{"object": {"url": ..., "title": ...}}`. That shape is pinned
+> only by a mocked test (the Atlassian docs page truncated when fetched). Confirm it once
+> against your instance, on a ticket that has a Confluence link added through the Jira UI:
+>
+> ```bash
+> set -a; source .env; set +a
+> curl -s -u "$SDLC__ATLASSIAN__EMAIL:$SDLC__ATLASSIAN__API_TOKEN" \
+>   "https://your-domain.atlassian.net/rest/api/3/issue/PROJ-1/remotelink"
+> ```
+>
+> Check that (1) the response is a JSON array, (2) every item has `object.url`, and (3) a link
+> added through the UI also has `object.title` (the code tolerates a missing title, not a
+> missing `url`). **Once confirmed**, change this note to "VERIFIED (date)" and update:
+> the "NOT independently doc-verified" line for `GET .../remotelink` in the
+> `src/sdlc/adapters/jira.py` docstring, the remote-link clause of the "Fields not independently
+> doc-verified" gotcha in `CLAUDE.md`, and the "Unverified" bullet in `docs/DECISIONS.md`
+> ("anchors read from Jira step tickets"). If the shape differs, fix `get_remote_links` and
+> `test_get_remote_links_returns_url_title_pairs` in `tests/test_jira_client_mocked.py` first.
+
 Poll Jira so the orchestrator can roll up statuses, detect newly-ready steps, and run
 automated ones:
 

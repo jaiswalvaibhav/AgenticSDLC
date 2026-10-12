@@ -20,6 +20,8 @@ jira:
   poll_interval_seconds: 300
   approval_label: sdlc-approved
   reject_label: sdlc-rejected
+ui:
+  poll_interval_seconds: 30   # the workflow UI's poller; faster than jira.poll_interval_seconds so progress feels live
 analyst:
   max_anchor_chars: 400000   # ~100k tokens; anchors above this block with a comment, never truncated
   max_pdf_bytes: 4500000
