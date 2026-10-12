@@ -3,6 +3,7 @@ label) and the Confluence pages the workflow created (workflow/pages.py's record
 plan page linked from the tickets by title), then forgets the saved run state and resets the
 Jira checkpoint. Never touches the Knowledge Base."""
 from sdlc.adapters.jira_polling import CHECKPOINT_KEY
+from sdlc.agents.activity import clear_step
 from sdlc.agents.analyst.ticket_anchors import _page_id
 from sdlc.ports import DocumentSource, ObjectStore, TicketSystem
 from sdlc.workflow.pages import delete_pages, recorded_pages
@@ -40,6 +41,8 @@ def cleanup_run(*, tickets: TicketSystem, doc_source: DocumentSource | None, sto
             return result
     if doc_source:
         result["page_errors"] = delete_pages(doc_source, store, use_case, page_ids, dry_run=dry_run)
+    for step_id in store.get_json(f"workflow/{use_case}/steps.json") or {}:
+        clear_step(store, use_case, step_id, dry_run=dry_run)
     for name in ("steps", "run_state", "plan", "traceability", "llm_usage"):
         store.delete(f"workflow/{use_case}/{name}.json", dry_run=dry_run)
     store.delete(f"workflow/{use_case}/plan.md", dry_run=dry_run)

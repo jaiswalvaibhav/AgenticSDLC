@@ -96,3 +96,17 @@ def test_without_a_doc_source_the_record_of_pages_is_kept():
     record_page(store, UC, plan, "D-2", dry_run=False)
     cleanup_run(tickets=tickets, doc_source=None, store=store, use_case=UC, dry_run=False)
     assert set(recorded_pages(store, UC)) == {plan.page_id} and plan.page_id in docs.pages
+
+
+def test_cleanup_forgets_the_agents_live_status_and_recorded_runs():
+    from sdlc.agents.activity import RunRecorder, activity_key, list_runs
+    tickets, docs, store, _ = _setup()
+    store.put_json(f"workflow/{UC}/steps.json", {"step": "D-2"}, dry_run=False)
+    recorder = RunRecorder(store, UC, "step", dry_run=False)
+    recorder.finish("planned")
+
+    cleanup_run(tickets=tickets, doc_source=None, store=store, use_case=UC, dry_run=True)
+    assert store.get_json(activity_key(UC, "step")) is not None  # a dry run keeps them
+
+    cleanup_run(tickets=tickets, doc_source=None, store=store, use_case=UC, dry_run=False)
+    assert store.get_json(activity_key(UC, "step")) is None and list_runs(store, UC, "step") == []

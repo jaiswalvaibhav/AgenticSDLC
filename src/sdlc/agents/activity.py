@@ -42,10 +42,12 @@ def read_trace(store: ObjectStore, use_case: str, step_id: str, run_id: str) -> 
     return store.get_json(trace_key(use_case, step_id, run_id))
 
 
-def delete_runs(store: ObjectStore, use_case: str, step_id: str) -> None:
+def clear_step(store: ObjectStore, use_case: str, step_id: str, dry_run: bool = False) -> None:
+    """Forgets a step's live status and all its recorded runs (used when a run is reset)."""
     for run in list_runs(store, use_case, step_id):
-        store.delete(trace_key(use_case, step_id, run["run_id"]), dry_run=False)
-    store.delete(index_key(use_case, step_id), dry_run=False)
+        store.delete(trace_key(use_case, step_id, run["run_id"]), dry_run=dry_run)
+    store.delete(index_key(use_case, step_id), dry_run=dry_run)
+    store.delete(activity_key(use_case, step_id), dry_run=dry_run)
 
 
 def _now() -> str:

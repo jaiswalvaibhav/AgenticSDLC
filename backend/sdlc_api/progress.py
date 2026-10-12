@@ -6,7 +6,7 @@ orchestrator and the analyst agent will see. Costs get_issue + get_remote_links 
 """
 from datetime import datetime, timedelta, timezone
 
-from sdlc.agents.activity import activity_key, delete_runs
+from sdlc.agents.activity import activity_key, clear_step
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, AttachmentSource, pick_anchor_source
 from sdlc.ports import ObjectStore, TicketSystem
 from sdlc.wiring import jira_browse_url
@@ -53,8 +53,7 @@ def reset_run(store: ObjectStore, use_case: str) -> None:
     labels (workflow_start), and creates new ones in a different project. Leaves the Jira
     status checkpoint alone — it only bounds how far back the poller looks."""
     for step_id in orchestrator._steps_map(store, use_case):
-        store.delete(activity_key(use_case, step_id), dry_run=False)
-        delete_runs(store, use_case, step_id)
+        clear_step(store, use_case, step_id)
     for key in (f"workflow/{use_case}/steps.json", f"workflow/{use_case}/run_state.json",
                 f"workflow/{use_case}/plan.json", f"workflow/{use_case}/plan.md",
                 f"workflow/{use_case}/traceability.json", f"workflow/{use_case}/llm_usage.json",
@@ -69,9 +68,12 @@ def live_activity(store: ObjectStore, use_case: str) -> dict[str, dict]:
     """step_id -> the agent's live status (agents/activity.py). Store reads only, no Jira, so the
     UI can show it on every poll even though the rest of the snapshot is cached."""
     out = {}
+    run_started = (store.get_json(selection_key(use_case)) or {}).get("started_at")
     for step_id in orchestrator._steps_map(store, use_case):
         doc = store.get_json(activity_key(use_case, step_id))
-        if not doc:
+        # a run from before the current one (reset while its agent was still going, or left by an
+        # older process) belongs to tickets that no longer exist
+        if not doc or (run_started and datetime.fromisoformat(doc["started_at"]) < datetime.fromisoformat(run_started)):
             continue
         if doc["running"] and datetime.now(timezone.utc) - datetime.fromisoformat(doc["updated_at"]) > STALE_AFTER:
             doc = {**doc, "running": False, "phase": "failed", "outcome": "failed",

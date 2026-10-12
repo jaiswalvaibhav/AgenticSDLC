@@ -502,3 +502,19 @@ def test_agent_runs_are_listed_and_a_trace_can_be_read(live, store):
 
     live.post(f"/api/runs/{UC}/reset")
     assert live.get(base).json() == {"runs": []}
+
+
+def test_activity_from_before_the_current_run_is_ignored(live, store):
+    from datetime import datetime, timedelta, timezone
+    from sdlc.agents.activity import activity_key
+
+    _run(live)
+    started = datetime.fromisoformat(store.get_json(f"ui/{UC}/selection.json")["started_at"])
+    old = (started - timedelta(minutes=5)).isoformat()
+    store.put_json(activity_key(UC, "develop_solution_requirements"),
+                   {"running": True, "run_id": "x", "phase": "calling_model", "detail": "", "started_at": old,
+                    "updated_at": datetime.now(timezone.utc).isoformat(), "model_calls": 2, "kb_queries": 2,
+                    "outcome": None, "error": None}, dry_run=False)
+
+    rows = {r["step_id"]: r for r in live.get(f"/api/runs/{UC}/progress").json()["steps"]}
+    assert rows["develop_solution_requirements"]["activity"] is None
