@@ -91,13 +91,15 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
     app = FastAPI(title="Agentic SDLC workflow UI", lifespan=lifespan)
     app.state.poller = poller
 
+    auto_confirm = bool(cfg.get("analyst", {}).get("auto_confirm_external_llm"))  # config.yaml: always on
+
     def check_request(body: PollerRequest) -> None:
         if body.use_case not in _use_cases():
             raise HTTPException(status_code=400, detail=f"unknown use case: {body.use_case}")
         if body.profile not in _profiles(cfg):
             raise HTTPException(status_code=400, detail=f"profile {body.profile!r} is not available")
         if (body.profile == "local" and os.environ.get("EXTERNAL_LLM_PROVIDER")
-                and not body.confirm_external_llm):
+                and not (auto_confirm or body.confirm_external_llm)):
             raise HTTPException(
                 status_code=400,
                 detail="EXTERNAL_LLM_PROVIDER is set: calls are billed to your own account. "
@@ -111,6 +113,7 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
             "profiles": _profiles(cfg),
             "default_profile": cfg["profile"],
             "external_llm_provider": os.environ.get("EXTERNAL_LLM_PROVIDER") or None,
+            "auto_confirm_external_llm": auto_confirm,
             "jira_project_key": cfg["jira"]["project_key"],
             "jira_base_url": cfg["atlassian"]["base_url"],
         }

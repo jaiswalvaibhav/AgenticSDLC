@@ -2,6 +2,7 @@
 with a fake Strands agent (no real Bedrock call) and fakes for everything else."""
 import io
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,8 +15,10 @@ UC = "demo_order_fulfilment"
 
 
 class _FakeAgentResult:
-    def __init__(self, structured_output):
+    def __init__(self, structured_output, cycles=None):
         self.structured_output = structured_output
+        if cycles is not None:  # Strands' AgentResult.metrics.cycle_count: one per model call
+            self.metrics = SimpleNamespace(cycle_count=cycles)
 
 
 class FakeStrandsAgent:
@@ -23,13 +26,14 @@ class FakeStrandsAgent:
     for `strands.Agent(content, structured_output_model=...)` without a real Bedrock
     call."""
 
-    def __init__(self, plan: SolutionRequirementsPlan):
+    def __init__(self, plan: SolutionRequirementsPlan, cycles=None):
         self.plan = plan
+        self.cycles = cycles
         self.calls: list[tuple[type, list[dict]]] = []
 
     def __call__(self, content, structured_output_model):
         self.calls.append((structured_output_model, content))
-        return _FakeAgentResult(self.plan)
+        return _FakeAgentResult(self.plan, self.cycles)
 
 
 @pytest.fixture
@@ -129,16 +133,16 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     assert title == "3. Solution Requirements"
 
 
-def _run(store, tickets, cfg, agent=None):
+def _run(store, tickets, cfg, agent=None, step_id=None, dry_run=False):
     issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
     doc_source = FakeDocumentSource()
     doc_source.add_page("Order Fulfilment Performance", page_id="0")
     result = run_solution_requirements(
-        {"use_case": UC, "issue_key": issue.key}, doc_source=doc_source,
-        knowledge_index=FakeKnowledgeIndex(), tickets=tickets, store=store, cfg=cfg, dry_run=False,
+        {"use_case": UC, "issue_key": issue.key, "step_id": step_id}, doc_source=doc_source,
+        knowledge_index=FakeKnowledgeIndex(), tickets=tickets, store=store, cfg=cfg, dry_run=dry_run,
         agent=agent or FakeStrandsAgent(SolutionRequirementsPlan(summary="", requirements=[])),
     )
-    return result, tickets.comments[issue.key]
+    return result, tickets.comments.get(issue.key, [])
 
 
 def test_blocked_when_step_ticket_has_no_artifact(cfg):
@@ -223,3 +227,36 @@ def test_anchor_pasted_in_a_comment_is_read_like_a_web_link(tmp_path, cfg):
     assert result["status"] == "planned"
     [(_, content)] = agent.calls
     assert "Layers" in content[0]["text"] and "Pipeline" in content[1]["text"]
+
+
+# ------------------------------------------------------------------ LLM call counting --
+USAGE_KEY = f"workflow/{UC}/llm_usage.json"
+STEP = "develop_solution_requirements"
+
+
+def _anchored(store, tickets):
+    _step_tickets(store, tickets, dds=("file", "a.csv", b"a,b"), tds=("file", "b.csv", b"c,d"))
+
+
+def test_model_calls_are_recorded_per_step_and_add_up_across_runs(cfg):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _anchored(store, tickets)
+    plan = SolutionRequirementsPlan(summary="", requirements=[])
+
+    _run(store, tickets, cfg, FakeStrandsAgent(plan, cycles=3), step_id=STEP)
+    assert store.get_json(USAGE_KEY) == {STEP: {"calls": 3, "runs": 1}}
+
+    _run(store, tickets, cfg, FakeStrandsAgent(plan, cycles=5), step_id=STEP)  # e.g. a regenerate after reject
+    assert store.get_json(USAGE_KEY) == {STEP: {"calls": 8, "runs": 2}}
+
+
+def test_nothing_is_recorded_without_a_step_id_without_metrics_or_on_dry_run(cfg):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _anchored(store, tickets)
+    plan = SolutionRequirementsPlan(summary="", requirements=[])
+
+    _run(store, tickets, cfg, FakeStrandsAgent(plan, cycles=3), step_id=None)
+    _run(store, tickets, cfg, FakeStrandsAgent(plan), step_id=STEP)  # a result with no metrics
+    _run(store, tickets, cfg, FakeStrandsAgent(plan, cycles=3), step_id=STEP, dry_run=True)
+
+    assert store.get_json(USAGE_KEY) is None

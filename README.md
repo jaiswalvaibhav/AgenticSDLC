@@ -132,8 +132,9 @@ to `anthropic` or `gemini` in `.env` — `profile: local` only, see `.env.exampl
   using those Application Default Credentials — no API key needed, billed to that GCP
   project.
 
-Either way you're asked to confirm before every call since it's billed to your own
-account, not AWS. Knowledge Base search is unaffected (it's a separate Bedrock call that
+Either way the calls are billed to your own account, not AWS. By default you're asked to
+confirm before every call from the CLI; `config.yaml` sets `analyst.auto_confirm_external_llm: true`,
+which skips that prompt (and the UI's per-trigger consent) — set it to `false` to be asked. Knowledge Base search is unaffected (it's a separate Bedrock call that
 doesn't need Claude model access). Remove `EXTERNAL_LLM_PROVIDER` once Bedrock access
 lands.
 

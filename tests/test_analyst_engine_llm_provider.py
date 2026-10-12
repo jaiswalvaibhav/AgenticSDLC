@@ -71,6 +71,18 @@ def test_unknown_provider_raises(monkeypatch, cfg):
         _build_real_agent(knowledge_index=None, use_case="uc", cfg=cfg)
 
 
+def test_config_can_turn_the_confirmation_off_for_good(monkeypatch, cfg):
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    calls = _confirm_spy(monkeypatch)
+
+    _build_real_agent(knowledge_index=None, use_case="uc", cfg={**cfg, "analyst": {"auto_confirm_external_llm": True}})
+    assert calls == []
+
+    _build_real_agent(knowledge_index=None, use_case="uc", cfg={**cfg, "analyst": {"auto_confirm_external_llm": False}})
+    assert len(calls) == 1  # explicitly off: still asks
+
+
 def _confirm_spy(monkeypatch):
     calls = []
     monkeypatch.setattr("typer.confirm", lambda *a, **k: calls.append(a) or True)

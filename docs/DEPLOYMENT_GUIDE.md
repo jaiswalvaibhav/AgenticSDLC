@@ -315,6 +315,13 @@ Good to know:
   never deleted or changed.** The next trigger re-adopts same-project tickets by their marker labels (no
   duplicates), or creates new ones in a different project. Without Start fresh, a trigger keeps adding to
   the saved run, and steps already in it are *not* re-created.
+- **LLM call count**: an automated step's ticket shows "LLM called N× · R runs" under its key — the
+  number of model calls (Strands event-loop cycles) the agent has made for that step, summed over runs
+  (a regenerate after reject adds to it). A throttling retry inside a call, or a run that fails before
+  returning, isn't counted. "Start fresh" clears it.
+- **External LLM consent**: `analyst.auto_confirm_external_llm: true` in `config.yaml` (the default) lets
+  the Anthropic/Gemini stopgap run without any prompt, in the CLI and the UI; set it to `false` to be
+  asked (per call in the CLI, once per trigger in the UI).
 - **Poller**: Start / Stop / Sync now in the header. It resumes after a backend restart unless you stopped it.
   The one-time external-LLM consent is saved with it, so a restart resumes billed calls too; stop the poller
   to revoke.

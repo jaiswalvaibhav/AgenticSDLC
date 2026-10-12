@@ -69,6 +69,11 @@ export function ProgressTable({ progress, onRefresh }: Props) {
                   <a href={row.jira_url} target="_blank" rel="noreferrer">
                     {row.key}
                   </a>
+                  {row.llm_usage && (
+                    <div className="muted small">
+                      LLM called {row.llm_usage.calls}× · {row.llm_usage.runs} run{row.llm_usage.runs === 1 ? "" : "s"}
+                    </div>
+                  )}
                 </td>
                 <td>{row.artifact}</td>
                 <td>

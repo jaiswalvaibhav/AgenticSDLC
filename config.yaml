@@ -23,6 +23,7 @@ jira:
 ui:
   poll_interval_seconds: 30   # the workflow UI's poller; faster than jira.poll_interval_seconds so progress feels live
 analyst:
+  auto_confirm_external_llm: true   # skip the billed-call confirmation for the local Anthropic/Gemini stopgap (CLI and UI); set false to confirm per call / per trigger
   max_anchor_chars: 400000   # ~100k tokens; anchors above this block with a comment, never truncated
   max_pdf_bytes: 4500000
 orchestrator:

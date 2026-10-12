@@ -115,7 +115,10 @@ def _build_real_agent(knowledge_index: KnowledgeIndex, use_case: str, cfg: dict)
         # Stopgap until Bedrock Claude model access is granted on this account (see
         # docs/DECISIONS.md "Decisions (local-only Anthropic API stopgap)"). local-profile
         # only — never used by the aws profile's Lambda/AgentCore path.
-        model = _build_local_llm_model(provider, confirmed=cfg.get("external_llm_confirmed", False))
+        # confirmed by the UI at trigger, or for good by config (analyst.auto_confirm_external_llm)
+        confirmed = cfg.get("external_llm_confirmed", False) or cfg.get("analyst", {}).get(
+            "auto_confirm_external_llm", False)
+        model = _build_local_llm_model(provider, confirmed=confirmed)
     else:
         model_id = cfg["aws"]["llm_model_id"]
         if not model_id:
@@ -226,6 +229,24 @@ def _plan_html(plan: SolutionRequirementsPlan) -> str:
     return "".join(parts)
 
 
+def llm_usage_key(use_case: str) -> str:
+    return f"workflow/{use_case}/llm_usage.json"
+
+
+def _record_llm_usage(result, *, store: ObjectStore, use_case: str, step_id: str | None,
+                       dry_run: bool) -> None:
+    """Adds this run's model calls to the step's running total (shown in the UI). Strands'
+    `cycle_count` is the number of event-loop cycles, each of which is one model call; a
+    throttling retry inside a cycle, or a run that raises before returning, isn't counted."""
+    calls = getattr(getattr(result, "metrics", None), "cycle_count", 0)
+    if not step_id or not calls:
+        return
+    usage = store.get_json(llm_usage_key(use_case)) or {}
+    step = usage.get(step_id, {"calls": 0, "runs": 0})
+    usage[step_id] = {"calls": step["calls"] + calls, "runs": step["runs"] + 1}
+    store.put_json(llm_usage_key(use_case), usage, dry_run=dry_run)
+
+
 def _solution_requirements_page_title(use_case: str) -> str:
     roles = anchors._page_roles(use_case)
     terms = yaml.safe_load((Path("usecases") / use_case / "terminology.yaml").read_text())["terms"]
@@ -270,7 +291,9 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
         return {"status": "blocked", "reason": reason}
 
     agent = agent or _build_real_agent(knowledge_index, use_case, cfg)
-    plan = agent(_content_blocks(anchor_docs), structured_output_model=SolutionRequirementsPlan).structured_output
+    result = agent(_content_blocks(anchor_docs), structured_output_model=SolutionRequirementsPlan)
+    _record_llm_usage(result, store=store, use_case=use_case, step_id=context.get("step_id"), dry_run=dry_run)
+    plan = result.structured_output
     plan.use_case = use_case
 
     store.put_json(f"workflow/{use_case}/plan.json", plan.model_dump(), dry_run=dry_run)

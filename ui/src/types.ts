@@ -5,6 +5,7 @@ export interface Meta {
   profiles: string[];
   default_profile: string;
   external_llm_provider: string | null;
+  auto_confirm_external_llm: boolean;
   jira_project_key: string;
   jira_base_url: string;
 }
@@ -41,6 +42,7 @@ export interface ProgressRow {
   anchor: Anchor | null;
   run_state: string | null;
   plan_ready: boolean | null;
+  llm_usage: { calls: number; runs: number } | null;
   recent_comments: string[];
 }
 

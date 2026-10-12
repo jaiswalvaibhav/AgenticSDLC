@@ -14,7 +14,8 @@ interface Props {
 
 export function TriggerDialog({ meta, profile, useCase, preview, busy, error, onCancel, onConfirm }: Props) {
   const [confirmLlm, setConfirmLlm] = useState(false);
-  const needsLlmConfirm = profile === "local" && meta.external_llm_provider !== null;
+  const billed = profile === "local" && meta.external_llm_provider !== null;
+  const needsLlmConfirm = billed && !meta.auto_confirm_external_llm;
   const ticketCount = preview.generate.length + preview.provide.length;
   return (
     <div className="overlay" role="dialog" aria-modal="true">
@@ -36,6 +37,12 @@ export function TriggerDialog({ meta, profile, useCase, preview, busy, error, on
             Allow billed calls to <strong>{meta.external_llm_provider}</strong> (your own account, not AWS Bedrock)
             for this run
           </label>
+        )}
+        {billed && meta.auto_confirm_external_llm && (
+          <p className="warn">
+            Calls to <strong>{meta.external_llm_provider}</strong> are billed to your own account;{" "}
+            <code>analyst.auto_confirm_external_llm</code> is on in config.yaml, so they run without asking.
+          </p>
         )}
         {error && <p className="error">{error}</p>}
         <div className="buttons">

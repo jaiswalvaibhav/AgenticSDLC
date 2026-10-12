@@ -52,7 +52,8 @@ def reset_run(store: ObjectStore, use_case: str) -> None:
     status checkpoint alone — it only bounds how far back the poller looks."""
     for key in (f"workflow/{use_case}/steps.json", f"workflow/{use_case}/run_state.json",
                 f"workflow/{use_case}/plan.json", f"workflow/{use_case}/plan.md",
-                f"workflow/{use_case}/traceability.json", selection_key(use_case)):
+                f"workflow/{use_case}/traceability.json", f"workflow/{use_case}/llm_usage.json",
+                selection_key(use_case)):
         store.delete(key, dry_run=False)
 
 
@@ -72,6 +73,7 @@ def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: Ticket
     run_state = orchestrator._run_state(store, use_case)
     provide = set((store.get_json(selection_key(use_case)) or {}).get("provide", []))
     plan_ready = store.get_json(f"workflow/{use_case}/plan.json") is not None
+    llm_usage = store.get_json(f"workflow/{use_case}/llm_usage.json") or {}
     done_status = orchestrator.load_terminology(use_case)["statuses"]["done"]
     base_url = cfg["atlassian"]["base_url"].rstrip("/")
     feeds_automation = {dep for s in registry.all_steps() if s.automation for dep in s.inputs}
@@ -92,6 +94,7 @@ def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: Ticket
             "anchor": _anchor(step.id, key, tickets) if step.id in feeds_automation else None,
             "run_state": run_state.get(step.id),
             "plan_ready": plan_ready if step.automation else None,
+            "llm_usage": llm_usage.get(step.id),
             "recent_comments": issue.comments[-3:],
         })
     return {"built_at": datetime.now(timezone.utc).isoformat(),

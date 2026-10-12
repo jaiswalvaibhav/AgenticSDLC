@@ -36,7 +36,7 @@ def test_meta_lists_use_cases_and_never_leaks_secrets(client, monkeypatch):
     assert response.json() == {
         "use_cases": ["demo_order_fulfilment"], "default_use_case": "demo_order_fulfilment",
         "profiles": ["local"], "default_profile": "local", "external_llm_provider": None,
-        "jira_project_key": "DEMO", "jira_base_url": "https://x.atlassian.net"}
+        "auto_confirm_external_llm": False, "jira_project_key": "DEMO", "jira_base_url": "https://x.atlassian.net"}
 
 
 def test_meta_offers_aws_only_once_the_agent_runtime_is_deployed(cfg, monkeypatch):
@@ -358,3 +358,33 @@ def test_reset_leaves_a_poller_running_for_another_use_case_alone(live):
     live.post(f"/api/runs/{UC}/reset")
 
     assert live.get("/api/poller").json()["use_case"] == "other_use_case"
+
+
+# ------------------------------------------------ auto-confirm + LLM usage in progress --
+def test_auto_confirm_in_config_removes_the_need_for_per_trigger_consent(cfg, tickets, store, gate, monkeypatch):
+    monkeypatch.setenv("EXTERNAL_LLM_PROVIDER", "anthropic")
+    cfg["analyst"] = {"auto_confirm_external_llm": True}
+    app = create_app(cfg=cfg, registry=WorkflowRegistry.load(), tickets=tickets, store=store,
+                     sync=lambda c, dry_run: gate.wait(5) and {})
+    client = TestClient(app)
+    try:
+        assert client.get("/api/meta").json()["auto_confirm_external_llm"] is True
+        assert _run(client).status_code == 200  # no confirm_external_llm needed
+        assert client.post("/api/poller/start", json={"use_case": UC}).status_code == 200
+    finally:
+        gate.set()
+        app.state.poller.shutdown(wait=2)
+
+
+def test_progress_shows_how_many_times_the_llm_was_called_and_reset_clears_it(live, store):
+    _run(live)
+    store.put_json(f"workflow/{UC}/llm_usage.json",
+                   {"develop_solution_requirements": {"calls": 8, "runs": 2}}, dry_run=False)
+
+    rows = {r["step_id"]: r for r in live.post(f"/api/runs/{UC}/refresh").json()["steps"]}
+
+    assert rows["develop_solution_requirements"]["llm_usage"] == {"calls": 8, "runs": 2}
+    assert rows["data_design_solution"]["llm_usage"] is None
+
+    live.post(f"/api/runs/{UC}/reset")
+    assert store.get_json(f"workflow/{UC}/llm_usage.json") is None

@@ -92,7 +92,7 @@ export default function App() {
 
   const startPolling = () => {
     const billed = profile === "local" && meta?.external_llm_provider;
-    if (billed && !window.confirm(`Allow billed calls to ${meta.external_llm_provider} (your own account) while polling?`)) {
+    if (billed && !meta.auto_confirm_external_llm && !window.confirm(`Allow billed calls to ${meta.external_llm_provider} (your own account) while polling?`)) {
       return;
     }
     act(() => api.startPoller(useCase, profile, Boolean(billed)));
