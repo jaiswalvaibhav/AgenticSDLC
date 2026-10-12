@@ -66,6 +66,8 @@ export const dateTime = (iso: string) => new Date(iso).toLocaleString();
 
 // Jira's hierarchy (mirrors MockJiraClient._check_parent): an Epic has no parent; a Story/Task/Bug sits
 // under an Epic; a Subtask sits under a Story/Task/Bug.
+// Stories, tasks and bugs carry the brief description and the three checklists (mirrors sdlc/sections.py).
+export const hasSections = (issueType: string) => ["story", "task", "bug"].includes(issueType.toLowerCase());
 export const parentAllowed = (issueType: string) => issueType.toLowerCase() !== "epic";
 export const parentRequired = (issueType: string) => isSubtask({ issuetype: issueType });
 export function eligibleParents(board: BoardView, issueType: string, selfKey?: string): IssueSummary[] {

@@ -17,8 +17,9 @@ from pathlib import Path
 import yaml
 
 from sdlc.agents.analyst.ticket_anchors import AnchorMissing, confluence_links_in_text, pick_anchor_source
-from sdlc.wiring import jira_project_key
 from sdlc.ports import AgentRuntime, Issue, ObjectStore, StatusEvent, TicketSystem, TransitionNotAvailable
+from sdlc.sections import SECTIONS
+from sdlc.wiring import jira_project_key
 from sdlc.workflow.registry import Step, WorkflowRegistry
 
 _STEP_LABEL_RE = re.compile(r"^step:([^:]+)$")
@@ -243,12 +244,12 @@ def apply_plan(step_id: str, issue_key: str, *, tickets: TicketSystem, store: Ob
             created_keys.append(existing.key)
             continue
 
-        ac_text = "\n".join(f"- {c}" for c in req["acceptance_criteria"])
-        description = (f"{req['description']}\n\nAcceptance criteria:\n{ac_text}\n\n"
-                        f"Source: {req['source_doc']} § {req['source_section']}")
+        # plans from before the sections existed have only acceptance_criteria
+        sections = {name: req.get(name) or ([] if name != "brief_description" else "") for name in SECTIONS}
+        description = f"{req['description']}\n\nSource: {req['source_doc']} § {req['source_section']}"
         story = tickets.create_issue(
             issue_types["story"], req["title"], parent_key=epic.key if epic else None, description=description,
-            labels=[f"uc:{use_case}", f"ws:{req['workstream']}", marker], dry_run=dry_run,
+            labels=[f"uc:{use_case}", f"ws:{req['workstream']}", marker], sections=sections, dry_run=dry_run,
         )
         tickets.create_issue(issue_types["subtask"], f"[Engineering] {req['title']}", parent_key=story.key,
                               component=cfg["jira"]["components"].get("engineer"),

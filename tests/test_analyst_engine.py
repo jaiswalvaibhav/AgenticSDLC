@@ -92,7 +92,9 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
     plan = SolutionRequirementsPlan(summary="Two requirements.", requirements=[
         Requirement(requirement_id="REQ-1", workstream="raw_ingestion", title="Ingest Orders",
-                    description="...", acceptance_criteria=["Lands by 3am"],
+                    brief_description="Daily order landing.", description="...",
+                    acceptance_criteria=["Lands by 3am"], definition_of_done=["Peer reviewed"],
+                    test_coverage=["Row count reconciliation"],
                     source_doc="data_design_solution", source_section="Layers",
                     stakeholder_requirement_ids=["SR-1"]),
     ])
@@ -122,6 +124,10 @@ def test_writes_plan_and_comments_on_success(tmp_path, cfg):
     plan_page = doc_source.find_page_by_title("3. Solution Requirements")
     assert plan_page is not None
     assert "REQ-1" in plan_page.html and "Lands by 3am" in plan_page.html
+    # every section of the ticket is on the plan page the reviewer approves, and in plan.md
+    for text in ("Daily order landing.", "Definition of done", "Peer reviewed", "Test coverage", "Row count reconciliation"):
+        assert text in plan_page.html
+    assert "DoD: Peer reviewed" in plan_md and "Tests: Row count reconciliation" in plan_md
 
     comment = tickets.comments[issue.key][0]
     assert "1 requirements" in comment
@@ -275,8 +281,8 @@ def test_a_rerun_replaces_the_plan_page_instead_of_appending_and_records_it(tmp_
 
     def plan(req_id):
         return SolutionRequirementsPlan(summary="s", requirements=[Requirement(
-            requirement_id=req_id, workstream="raw_ingestion", title="T", description="...",
-            acceptance_criteria=["x"], source_doc="data_design_solution", source_section="Layers",
+            requirement_id=req_id, workstream="raw_ingestion", title="T", brief_description="b",
+            description="...", acceptance_criteria=["x"], definition_of_done=["d"], test_coverage=["t"], source_doc="data_design_solution", source_section="Layers",
             stakeholder_requirement_ids=["SR-1"])])
 
     for req_id in ("REQ-FIRST", "REQ-SECOND"):
@@ -289,3 +295,14 @@ def test_a_rerun_replaces_the_plan_page_instead_of_appending_and_records_it(tmp_
     assert [p.title for p in doc_source.pages.values()].count("3. Solution Requirements") == 1
     assert set(recorded_pages(store, UC)) == {page.page_id}
     assert recorded_pages(store, UC)[page.page_id]["issue_key"] == issue.key
+
+
+def test_the_model_is_told_about_the_ticket_sections_and_which_are_checklists():
+    from sdlc.agents.analyst.engine import SYSTEM_PROMPT
+    for text in ("Brief Description", "Acceptance Criteria", "Definition of Done", "Test Coverage", "ticks off"):
+        assert text in SYSTEM_PROMPT
+    schema = SolutionRequirementsPlan.model_json_schema()["$defs"]["Requirement"]
+    for field in ("brief_description", "acceptance_criteria", "definition_of_done", "test_coverage"):
+        assert field in schema["required"]  # required, so the model can't skip them
+    for field in ("acceptance_criteria", "definition_of_done", "test_coverage"):
+        assert "checklist" in schema["properties"][field]["description"].lower()

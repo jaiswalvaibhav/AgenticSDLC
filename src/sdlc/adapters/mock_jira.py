@@ -24,12 +24,13 @@ from datetime import datetime, timedelta, timezone
 
 from sdlc.adapters.jira import _URL_RE
 from sdlc.ports import Attachment, Issue, StatusEvent, TransitionNotAvailable, VersionConflict
+from sdlc.sections import CHECKLISTS, SECTIONS, has_sections, normalise, progress
 
 DEFAULT_ISSUE_TYPES = ["Epic", "Story", "Task", "Bug", "Subtask"]
 DEFAULT_STATUSES = ["To Do", "In Progress", "Done"]
 _SUBTASK_TYPES = {"subtask", "sub-task"}
 PRIORITIES = ["Highest", "High", "Medium", "Low", "Lowest"]
-_EDITABLE = {"summary", "description", "assignee", "priority", "story_points", "components", "parent"}
+_EDITABLE = {"summary", "description", "assignee", "priority", "story_points", "components", "parent", *SECTIONS}
 _SPRINT_EDITABLE = {"name", "goal", "start_date", "end_date"}
 _RETRIES = 5
 _CLAUSE = re.compile(r'(\w+)\s*(>=|=)\s*"([^"]*)"')
@@ -140,9 +141,13 @@ class MockJiraClient:
     def create_issue(self, issue_type: str, summary: str, *, parent_key: str | None = None,
                       description: str = "", labels: list[str] | None = None,
                       assignee: str | None = None, component: str | None = None,
-                      dry_run: bool = True) -> Issue:
+                      sections: dict | None = None, dry_run: bool = True) -> Issue:
         if issue_type not in self.issue_types:
             raise ValueError(f"issue type {issue_type!r} is not one of {self.issue_types}")
+        if sections and not has_sections(issue_type):
+            raise ValueError(f"a {issue_type.lower()} has no brief description, checklists or test coverage")
+        if set(sections or {}) - set(SECTIONS):
+            raise ValueError(f"unknown sections {sorted(set(sections) - set(SECTIONS))}")
         if dry_run:
             print(f"[dry-run] would create {issue_type} in {self.project_key}: {summary}")
             return Issue(key="(dry-run)", issue_type=issue_type, status=self.statuses[0],
@@ -164,7 +169,10 @@ class MockJiraClient:
                "status": self.statuses[0], "labels": list(labels or []), "parent": parent_key,
                "assignee": assignee, "reporter": self.author, "priority": "Medium",
                "story_points": None, "components": [component] if component else [],
-               "sprint_id": None, "created": stamp, "updated": stamp, "comments": [],
+               "sprint_id": None, "created": stamp, "updated": stamp,
+               **{name: normalise(name, (sections or {}).get(name, "" if name == "brief_description" else []))
+                  for name in SECTIONS},
+               "comments": [],
                "attachments": [], "remote_links": [], "issue_links": [], "properties": {},
                "changelog": []}
         self.store.put_bytes_if(self._issue_key(doc["key"]), json.dumps(doc, indent=2).encode(),
@@ -422,9 +430,16 @@ class MockJiraClient:
             elif doc["issuetype"].lower() in _SUBTASK_TYPES:
                 raise ValueError("a subtask needs a parent")
 
+        sections = {f: normalise(f, v) for f, v in fields.items() if f in SECTIONS}
+
         def apply(doc):
-            change = {f: (doc[f], v) for f, v in fields.items() if doc[f] != v}
-            doc.update({f: v for f, (_, v) in change.items()})
+            if sections and not has_sections(doc["issuetype"]):
+                raise ValueError(f"a {doc['issuetype'].lower()} has no brief description, checklists or test coverage")
+            new = {**fields, **sections}
+            current = {f: doc.get(f, [] if f in CHECKLISTS else "" if f in SECTIONS else None) for f in new}
+            shown = lambda f, v: progress(v) if f in CHECKLISTS else v  # noqa: E731  history shows "3 items, 1 done"
+            change = {f: (shown(f, current[f]), shown(f, v)) for f, v in new.items() if current[f] != v}
+            doc.update({f: new[f] for f in change})
             if change:
                 self._log(doc, **change)
         self._modify_issue(key, apply)
@@ -569,6 +584,9 @@ class MockJiraClient:
     def issue_view(self, key: str) -> dict:
         """One issue in full, with its parent, children, links and sprint resolved."""
         doc = self._doc(key)
+        doc.setdefault("brief_description", "")
+        for name in CHECKLISTS:
+            doc.setdefault(name, [])
         by_key = {d["key"]: d for d in self._all_docs()}
 
         def ref(k):

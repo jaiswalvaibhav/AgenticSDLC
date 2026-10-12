@@ -36,7 +36,7 @@ def _zip_lambda_code(zip_path: Path) -> None:
     aws_sync modules or the analyst engine. tests/test_agent_deploy.py imports the handler
     from this zip, so a module added to the chain but not to this list fails there."""
     keep_files = {
-        "sdlc/__init__.py", "sdlc/config.py", "sdlc/ports.py", "sdlc/wiring.py",
+        "sdlc/__init__.py", "sdlc/config.py", "sdlc/ports.py", "sdlc/sections.py", "sdlc/wiring.py",
         "sdlc/sync_once.py",
         "sdlc/adapters/__init__.py", "sdlc/adapters/jira.py", "sdlc/adapters/jira_polling.py",
         "sdlc/adapters/mock_jira.py",

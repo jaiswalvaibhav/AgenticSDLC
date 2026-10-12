@@ -43,10 +43,20 @@ SYSTEM_PROMPT = (
     "search_knowledge tool for anything else you need (stakeholder requirements, "
     "source data analysis, conceptual data model, feasibility analysis, glossary). "
     "Produce solution requirements grouped into workstreams (raw_ingestion, "
-    "curated_modelling, presentation_bi, data_quality), each with clear acceptance "
-    "criteria, and a citation back to the exact DDS/TDS section heading it came from "
-    "plus any stakeholder requirement ids (e.g. SR-1) it traces to. For a document "
-    "given as a PDF, cite its own section headings as source_section."
+    "curated_modelling, presentation_bi, data_quality), each with a citation back to "
+    "the exact DDS/TDS section heading it came from plus any stakeholder requirement "
+    "ids (e.g. SR-1) it traces to. For a document given as a PDF, cite its own "
+    "section headings as source_section. "
+    "Each requirement becomes a Jira ticket with these sections: a Brief Description "
+    "(one or two sentences), a full Description, and three checklists that the team "
+    "ticks off as they work: Acceptance Criteria, Definition of Done and Test "
+    "Coverage. You decide what goes in each section, based on the documents. Write "
+    "every checklist item as one short, independently verifiable line (not a "
+    "paragraph), and only include items that apply to this requirement: acceptance "
+    "criteria say what the delivered result must do, the definition of done covers "
+    "what else must be true to close the ticket (review, documentation, deployment, "
+    "monitoring), and test coverage lists the tests needed (unit, data quality, "
+    "reconciliation, performance and so on)."
 )
 
 
@@ -203,8 +213,11 @@ def _plan_markdown(plan: SolutionRequirementsPlan) -> str:
         lines.append(f"## {ws}")
         for r in (r for r in plan.requirements if r.workstream == ws):
             lines.append(f"- **{r.requirement_id}** {r.title}")
+            lines.append(f"  - {r.brief_description}")
             lines.append(f"  - {r.description}")
-            lines.append("  - AC: " + "; ".join(r.acceptance_criteria))
+            for title, items in (("AC", r.acceptance_criteria), ("DoD", r.definition_of_done),
+                                 ("Tests", r.test_coverage)):
+                lines.append(f"  - {title}: " + "; ".join(items))
             sr_ids = ", ".join(r.stakeholder_requirement_ids) or "-"
             lines.append(f"  - Source: {r.source_doc} § {r.source_section} (stakeholder: {sr_ids})")
         lines.append("")
@@ -219,11 +232,15 @@ def _plan_html(plan: SolutionRequirementsPlan) -> str:
         parts.append(f"<h2>{e(ws)}</h2>")
         for r in (r for r in plan.requirements if r.workstream == ws):
             sr_ids = ", ".join(r.stakeholder_requirement_ids) or "-"
-            ac_items = "".join(f"<li>{e(ac)}</li>" for ac in r.acceptance_criteria)
+            def checklist(title, items):
+                return f"<p><strong>{title}:</strong></p><ul>{''.join(f'<li>{e(i)}</li>' for i in items)}</ul>"
             parts.append(
                 f"<h3>{e(r.requirement_id)} {e(r.title)}</h3>"
+                f"<p><em>{e(r.brief_description)}</em></p>"
                 f"<p>{e(r.description)}</p>"
-                f"<p><strong>Acceptance criteria:</strong></p><ul>{ac_items}</ul>"
+                f"{checklist('Acceptance criteria', r.acceptance_criteria)}"
+                f"{checklist('Definition of done', r.definition_of_done)}"
+                f"{checklist('Test coverage', r.test_coverage)}"
                 f"<p><strong>Source:</strong> {e(r.source_doc)} § {e(r.source_section)} "
                 f"(stakeholder: {e(sr_ids)})</p>"
             )

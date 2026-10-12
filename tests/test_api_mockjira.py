@@ -309,3 +309,15 @@ def test_linking_an_issue_to_itself_is_refused(api):
     key = new_issue(api)
     response = api.post(f"{API}/issues/{key}/links", json={"issue": key, "relation": "depends on"})
     assert response.status_code == 400 and "itself" in response.json()["detail"]
+
+
+def test_the_sections_are_edited_through_the_api(api):
+    story = new_issue(api)
+    items = [{"text": "Lands by 3am", "done": True}, {"text": "No duplicates"}]
+    assert api.patch(f"{API}/issues/{story}", json={"brief_description": "Short.", "acceptance_criteria": items}).status_code == 200
+    view = api.get(f"{API}/issues/{story}").json()
+    assert view["brief_description"] == "Short." and view["definition_of_done"] == []
+    assert view["acceptance_criteria"] == [{"text": "Lands by 3am", "done": True}, {"text": "No duplicates", "done": False}]
+    epic = new_issue(api, issue_type="Epic")
+    refused = api.patch(f"{API}/issues/{epic}", json={"definition_of_done": items})
+    assert refused.status_code == 400 and "no brief description" in refused.json()["detail"]

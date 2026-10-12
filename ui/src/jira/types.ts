@@ -42,8 +42,17 @@ export interface IssueRef {
   status: string;
 }
 
+export interface ChecklistItem {
+  text: string;
+  done: boolean;
+}
+
 export interface IssueDetail extends IssueSummary {
   id: string;
+  brief_description: string; // the next three are checklists; only stories, tasks and bugs use them
+  acceptance_criteria: ChecklistItem[];
+  definition_of_done: ChecklistItem[];
+  test_coverage: ChecklistItem[];
   description: string;
   reporter: string;
   created: string;

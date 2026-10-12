@@ -124,6 +124,7 @@ class FakeTicketSystem:
         self.artifacts: set[str] = set()  # issue keys treated as having an artifact
         self.blocked_transitions: set[tuple[str, str, str]] = set()  # (key, from_status, to_status)
         self.properties: dict[str, dict] = {}  # key -> {property_key: value}
+        self.sections: dict[str, dict] = {}  # key -> the sections create_issue was given (sdlc/sections.py)
         self.sprints: dict[str, list[str]] = {}  # sprint_id -> issue keys
         self._future_sprint_id: str | None = None
         self.attachments: dict[str, list[Attachment]] = {}  # issue key -> attachments
@@ -142,13 +143,14 @@ class FakeTicketSystem:
         return issue
 
     def create_issue(self, issue_type, summary, *, parent_key=None, description="",
-                      labels=None, assignee=None, component=None, dry_run=True) -> Issue:
+                      labels=None, assignee=None, component=None, sections=None, dry_run=True) -> Issue:
         key = f"FAKE-{self._next_num}"
         issue = Issue(key=key, issue_type=issue_type, status="To Do", summary=summary,
                       labels=labels or [], parent_key=parent_key, assignee=assignee)
         if not dry_run:
             self._next_num += 1
             self.issues[key] = issue
+            self.sections[key] = sections or {}
         return issue
 
     def get_issue(self, key: str) -> Issue:

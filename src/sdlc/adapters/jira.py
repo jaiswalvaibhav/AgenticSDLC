@@ -59,6 +59,7 @@ from datetime import datetime
 import requests
 
 from sdlc.ports import Attachment, Issue, StatusEvent, TransitionNotAvailable
+from sdlc.sections import render_sections
 
 
 def _to_adf(text: str) -> dict:
@@ -189,7 +190,9 @@ class JiraClient:
     def create_issue(self, issue_type: str, summary: str, *, parent_key: str | None = None,
                       description: str = "", labels: list[str] | None = None,
                       assignee: str | None = None, component: str | None = None,
-                      dry_run: bool = True) -> Issue:
+                      sections: dict | None = None, dry_run: bool = True) -> Issue:
+        if sections:  # Jira has no fields for these: they go into the description as text
+            description = "\n\n".join(t for t in (description, render_sections(sections)) if t)
         fields: dict = {
             "project": {"key": self.project_key},
             "issuetype": {"name": issue_type},

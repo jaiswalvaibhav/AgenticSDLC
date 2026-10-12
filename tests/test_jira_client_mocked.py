@@ -289,3 +289,17 @@ def test_get_text_links_reads_the_description_and_every_comment(client):
 
     client._session.queue("GET", "/issue/DEMO-2", FakeResponse({"fields": {"description": None}}))
     assert client.get_text_links("DEMO-2") == []
+
+
+def test_create_issue_appends_the_sections_to_the_description_as_text(client):
+    client._session.queue("POST", "/issue", FakeResponse({"key": "DEMO-9"}))
+    client._session.queue("GET", "/issue/DEMO-9", FakeResponse({"fields": {
+        "issuetype": {"name": "Story"}, "status": {"name": "To Do"}, "summary": "s", "labels": [],
+        "parent": None, "assignee": None}}))
+
+    client.create_issue("Story", "s", description="Full text.", dry_run=False,
+                        sections={"brief_description": "Short.", "acceptance_criteria": ["a", "b"]})
+
+    [(_, _, body)] = [c for c in client._session.calls if c[0] == "POST"]
+    text = str(body["fields"]["description"])
+    assert "Full text." in text and "Brief description:" in text and "Acceptance criteria:" in text and "- b" in text

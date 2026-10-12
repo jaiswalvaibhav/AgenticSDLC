@@ -24,7 +24,16 @@ class IssueCreate(BaseModel):
     sprint_id: int | None = None
 
 
+class ChecklistItem(BaseModel):
+    text: str
+    done: bool = False
+
+
 class IssueEdit(BaseModel):  # only the fields sent are changed
+    brief_description: str | None = None
+    acceptance_criteria: list[ChecklistItem] | None = None  # the whole list: items, order and ticks
+    definition_of_done: list[ChecklistItem] | None = None
+    test_coverage: list[ChecklistItem] | None = None
     summary: str | None = None
     description: str | None = None
     assignee: str | None = None

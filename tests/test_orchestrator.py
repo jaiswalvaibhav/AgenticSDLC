@@ -389,3 +389,30 @@ def test_workflow_start_places_new_step_stories_in_future_sprint(tickets, store,
 
     [(_sprint_id, keys)] = tickets.sprints.items()
     assert set(keys) == set(steps_map.values())  # every newly created step Story, none skipped
+
+
+def _approve_plan(tickets, store, cfg, plan):
+    key = _step_issue(tickets, store, UC, "b")
+    tickets.transition_issue(key, STATUSES["in_progress"], dry_run=False)
+    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
+    store.put_json(f"workflow/{UC}/plan.json", plan, dry_run=False)
+    tickets.add_label(key, cfg["jira"]["approval_label"], dry_run=False)
+    tickets.create_issue("Epic", "Epic", labels=[f"sdlc-epic:{UC}"], dry_run=False)
+    orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False)
+    return next(i for i in tickets.issues.values() if i.summary == "Ingest Orders")
+
+
+def test_apply_plan_puts_the_models_sections_on_the_story(tickets, store, cfg):
+    req = {**_SAMPLE_PLAN["requirements"][0], "brief_description": "Daily order landing.",
+           "definition_of_done": ["Peer reviewed", "Runbook updated"], "test_coverage": ["Row count reconciliation"]}
+    story = _approve_plan(tickets, store, cfg, {**_SAMPLE_PLAN, "requirements": [req]})
+
+    assert tickets.sections[story.key] == {
+        "brief_description": "Daily order landing.", "acceptance_criteria": ["Orders land by 3am"],
+        "definition_of_done": ["Peer reviewed", "Runbook updated"], "test_coverage": ["Row count reconciliation"]}
+
+
+def test_apply_plan_still_accepts_a_plan_saved_before_the_sections_existed(tickets, store, cfg):
+    story = _approve_plan(tickets, store, cfg, _SAMPLE_PLAN)  # only acceptance_criteria
+    assert tickets.sections[story.key] == {"brief_description": "", "acceptance_criteria": ["Orders land by 3am"],
+                                           "definition_of_done": [], "test_coverage": []}

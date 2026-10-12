@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import * as api from "./api";
 import { CommentBody, CommentBox } from "./Comments";
+import { Checklist } from "./Checklist";
+import { InlineText } from "./InlineText";
 import { IssuePicker } from "./IssuePicker";
 import { ParentPicker } from "./ParentPicker";
-import { Avatar, Lozenge, ME, Priority, TypeIcon, dateTime, isSubtask, linkLabel, message, statusCategory } from "./parts";
+import { Avatar, Lozenge, ME, Priority, TypeIcon, dateTime, hasSections, isSubtask, linkLabel, message, statusCategory } from "./parts";
 import { Link, navigate } from "./route";
 import type { BoardView, IssueDetail } from "./types";
 
@@ -15,33 +17,6 @@ interface Props {
 
 const show = (v: unknown) => (Array.isArray(v) ? v.join(", ") || "None" : v === null || v === "" || v === undefined ? "None" : String(v));
 const size = (bytes: number) => (bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`);
-
-// Click-to-edit text: Enter saves a one-line field, Ctrl/Cmd+Enter a multi-line one, Esc cancels.
-function InlineText({ value, onSave, multiline, placeholder, className }: {
-  value: string; onSave: (v: string) => void; multiline?: boolean; placeholder?: string; className?: string;
-}) {
-  const [draft, setDraft] = useState<string | null>(null);
-  if (draft === null) {
-    return (
-      <span className={`mj-inline ${className ?? ""}`} onClick={() => setDraft(value)} title="Click to edit">
-        {value || <span className="muted">{placeholder ?? "None"}</span>}
-      </span>
-    );
-  }
-  const save = () => { if (draft !== value) onSave(draft); setDraft(null); };
-  const keys = (e: KeyboardEvent) => {
-    if (e.key === "Escape") setDraft(null);
-    if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
-  };
-  return multiline ? (
-    <span className="mj-inline-edit">
-      <textarea autoFocus rows={5} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={keys} />
-      <span className="mj-inline-buttons"><button className="primary" onClick={save}>Save</button><button onClick={() => setDraft(null)}>Cancel</button></span>
-    </span>
-  ) : (
-    <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={keys} onBlur={save} />
-  );
-}
 
 // The issue page: refreshes every few seconds, because the agent and the poller change tickets too.
 export function IssueView({ issueKey, board, reload }: Props) {
@@ -129,10 +104,28 @@ export function IssueView({ issueKey, board, reload }: Props) {
         <h1><InlineText value={issue.summary} onSave={(v) => v.trim() && patch({ summary: v.trim() })} /></h1>
         {error && <div className="banner error">{error}</div>}
 
+        {hasSections(issue.issuetype) && (
+          <>
+            <h3>Brief description</h3>
+            <div className="mj-description">
+              <InlineText multiline value={issue.brief_description} placeholder="Add a brief description…"
+                onSave={(v) => patch({ brief_description: v })} />
+            </div>
+          </>
+        )}
+
         <h3>Description</h3>
         <div className="mj-description">
           <InlineText multiline value={issue.description} placeholder="Add a description…" onSave={(v) => patch({ description: v })} />
         </div>
+
+        {hasSections(issue.issuetype) && (
+          <>
+            <Checklist title="Acceptance criteria" items={issue.acceptance_criteria} onChange={(items) => patch({ acceptance_criteria: items })} />
+            <Checklist title="Definition of done" items={issue.definition_of_done} onChange={(items) => patch({ definition_of_done: items })} />
+            <Checklist title="Test coverage" items={issue.test_coverage} onChange={(items) => patch({ test_coverage: items })} />
+          </>
+        )}
 
         {issue.children.length > 0 && (
           <>
