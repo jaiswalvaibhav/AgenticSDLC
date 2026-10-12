@@ -115,6 +115,7 @@ class FakeTicketSystem:
         self.comments: dict[str, list[str]] = {}
         self.links: list[tuple[str, str, str]] = []  # (inward, outward, type)
         self.remote_links: dict[str, list[tuple[str, str]]] = {}  # key -> [(url, title)]
+        self.text_links: dict[str, list[str]] = {}  # key -> URLs in its description/comments
         self.artifacts: set[str] = set()  # issue keys treated as having an artifact
         self.blocked_transitions: set[tuple[str, str, str]] = set()  # (key, from_status, to_status)
         self.properties: dict[str, dict] = {}  # key -> {property_key: value}
@@ -197,6 +198,9 @@ class FakeTicketSystem:
 
     def get_remote_links(self, key: str) -> list[tuple[str, str]]:
         return self.remote_links.get(key, [])
+
+    def get_text_links(self, key: str) -> list[str]:
+        return self.text_links.get(key, [])
 
     def get_or_create_future_sprint(self, dry_run: bool = True) -> str:
         if dry_run:

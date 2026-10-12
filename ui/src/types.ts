@@ -23,7 +23,10 @@ export interface Preview {
   provide: Step[];
 }
 
-export type Anchor = { ok: true; kind: "file" | "link"; name: string } | { ok: false; reason: string };
+export type Anchor =
+  | { ok: true; kind: "file"; name: string }
+  | { ok: true; kind: "link"; name: string; via: string }
+  | { ok: false; reason: string };
 
 export interface ProgressRow {
   step_id: string;

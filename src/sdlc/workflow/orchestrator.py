@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from sdlc.agents.analyst.ticket_anchors import AnchorMissing, pick_anchor_source
+from sdlc.agents.analyst.ticket_anchors import AnchorMissing, confluence_links_in_text, pick_anchor_source
 from sdlc.ports import AgentRuntime, Issue, ObjectStore, StatusEvent, TicketSystem, TransitionNotAvailable
 from sdlc.workflow.registry import Step, WorkflowRegistry
 
@@ -111,7 +111,10 @@ def _inputs_satisfied(step: Step, steps_map: dict, tickets: TicketSystem, status
         if not key:
             return False
         issue = tickets.get_issue(key)
-        if issue.status != statuses["done"] or not tickets.has_artifact(key):
+        # has_artifact = an attachment or Web link; a Confluence page pasted into the ticket's
+        # description/comments counts too (the same rule the analyst's anchor lookup uses)
+        if issue.status != statuses["done"] or not (
+                tickets.has_artifact(key) or confluence_links_in_text(key, tickets)):
             return False
     return True
 

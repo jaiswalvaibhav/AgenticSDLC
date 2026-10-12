@@ -99,6 +99,31 @@ def test_status_changes_since_filters_by_field_and_date(client):
     assert events[0].from_status == "In Progress" and events[0].to_status == "Done"
 
 
+def test_status_changes_since_compares_instants_not_strings_across_utc_offsets(client):
+    """Jira stamps changelog `created` in the site's offset (+0530); our checkpoint is UTC.
+    Compared as strings, "…T10:35+0530" looks newer than "…T05:09+00:00" even though it is
+    earlier — every old status event was replayed on every poll."""
+    client._session.queue("GET", "/changelog", FakeResponse({"isLast": True, "values": [
+        {"created": "2026-10-12T10:35:37.421+0530",  # 05:05:37 UTC: before the checkpoint
+         "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"}]},
+        {"created": "2026-10-12T10:45:00.000+0530",  # 05:15:00 UTC: after it
+         "items": [{"field": "status", "fromString": "Done", "toString": "In Progress"}]},
+        {"created": "2026-10-12T05:20:00.000Z",  # a UTC entry written with "Z"
+         "items": [{"field": "status", "fromString": "In Progress", "toString": "Done"}]},
+    ]}))
+
+    events = client.status_changes_since("DEMO-1", since="2026-10-12T05:09:00.659243+00:00")
+
+    assert [(e.from_status, e.to_status) for e in events] == [("Done", "In Progress"), ("In Progress", "Done")]
+
+
+def test_status_changes_since_skips_entries_without_a_created_time(client):
+    client._session.queue("GET", "/changelog", FakeResponse({"isLast": True, "values": [
+        {"items": [{"field": "status", "fromString": "To Do", "toString": "Done"}]}]}))
+
+    assert client.status_changes_since("DEMO-1", since="2026-10-12T05:09:00+00:00") == []
+
+
 def test_set_property_puts_value_to_properties_endpoint(client):
     client._session.queue("PUT", "/properties/sdlc.trace", FakeResponse({}))
 

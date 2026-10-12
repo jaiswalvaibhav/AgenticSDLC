@@ -12,7 +12,11 @@ function artifactCell(row: ProgressRow) {
     <>
       {found.length > 0 ? found.join(", ") : <span className="muted">none attached</span>}
       {anchor && !anchor.ok && <div className="error">{anchor.reason}</div>}
-      {anchor && anchor.ok && <div className="ok">usable ({anchor.kind})</div>}
+      {anchor && anchor.ok && (
+        <div className="ok">
+          usable ({anchor.kind === "link" && anchor.via !== "web link" ? `link in ${anchor.via}` : anchor.kind})
+        </div>
+      )}
     </>
   );
 }

@@ -6,9 +6,11 @@ checkpoint. The checkpoint is persisted via ObjectStore, so it survives between
 A WebhookStatusSource isn't built (BRIEF.md says not to, yet) — this stays as the
 reconciliation source even once a webhook exists.
 
-Note: the checkpoint is kept as an ISO8601 string (to compare lexically against
-changelog `created` timestamps in status_changes_since) and reformatted to JQL's
-"yyyy/MM/dd HH:mm" date-literal syntax for the search clause.
+Note: the checkpoint is kept as a timezone-aware ISO8601 string (UTC); status_changes_since
+parses it and Jira's changelog `created` (which uses the site's UTC offset) into datetimes
+before comparing, and it is reformatted to JQL's "yyyy/MM/dd HH:mm" date-literal syntax for
+the search clause. Caveat: JQL reads that literal in the *Jira user's* timezone, not UTC — a
+user west of UTC would get a window that starts too late; one east of UTC just over-fetches.
 """
 from datetime import datetime, timezone
 

@@ -63,7 +63,7 @@ def _anchor(step_id: str, key: str, tickets: TicketSystem) -> dict:
         return {"ok": False, "reason": exc.reason}
     if isinstance(source, AttachmentSource):
         return {"ok": True, "kind": "file", "name": source.attachment.title}
-    return {"ok": True, "kind": "link", "name": source.title or source.page_id}
+    return {"ok": True, "kind": "link", "name": source.title or source.page_id, "via": source.via}
 
 
 def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: TicketSystem,

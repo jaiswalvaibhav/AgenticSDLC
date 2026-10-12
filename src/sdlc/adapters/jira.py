@@ -8,11 +8,11 @@ guidance, except where noted:
   nextPageToken, defaults to returning only the `id` field (we always pass `fields`
   explicitly), and does NOT support expand=changelog.
 - GET  /rest/api/3/issue/{key}/changelog -> per-issue status history (the only way to
-  get changelog now that search can't expand it). NOT independently doc-verified this
-  session (the docs page kept truncating) — the {"values": [{"created", "items": [
-  {"field", "fromString", "toString"}]}]} shape below is the long-standing, widely used
-  Jira Cloud changelog shape, but treat it as unconfirmed until checked against a real
-  response from your instance.
+  get changelog now that search can't expand it). The {"values": [{"created", "items": [
+  {"field", "fromString", "toString"}]}], "isLast"} shape was confirmed against a real
+  Jira Cloud site (2026-10-12); the docs page itself kept truncating. `created` carries
+  the *site's* UTC offset (e.g. "2026-10-12T10:35:37.421+0530"), not UTC — so it must be
+  compared as a datetime against our UTC checkpoint, never as a string (status_changes_since).
 - POST /rest/api/3/issue                      -> create (fields.description is ADF, not plain text)
 - GET  /rest/api/3/issue/{key}/transitions    -> {"transitions": [{"id", "name", "to": {"name"}}]}
 - POST /rest/api/3/issue/{key}/transitions    -> {"transition": {"id": ...}}
@@ -20,6 +20,10 @@ guidance, except where noted:
 - PUT  /rest/api/3/issue/{key}                -> {"update": {"labels": [{"add": "..."}]}}
 - POST /rest/api/3/issueLink                  -> {"type": {"name": "Blocks"}, "inwardIssue", "outwardIssue"}
 - POST /rest/api/3/issue/{key}/remotelink     -> {"object": {"url": "...", "title": "..."}}
+- GET  /rest/api/3/issue/{key}?fields=description,comment -> ADF bodies; get_text_links() walks them
+  for URLs. `inlineCard` (a pasted/smart link) with attrs.url was confirmed against a real site
+  (2026-10-12); `link` marks (attrs.href) and `blockCard`/`embedCard` are the documented ADF
+  shapes but haven't been seen live; a bare URL typed into a comment arrives as plain text.
 - GET  /rest/api/3/issue/{key}/remotelink     -> a top-level array of {"id", "object": {"url",
   "title"}, ...}. **NOT independently doc-verified this session** (the docs page kept
   truncating) — check it against a real response from your instance.
@@ -48,6 +52,8 @@ for Sub-task -> Story; a different project type would need a project-type-aware 
 clause here.
 """
 import base64
+import re
+from datetime import datetime
 
 import requests
 
@@ -87,6 +93,33 @@ def adf_to_text(node: dict | None) -> str:
     if node_type == "codeBlock":
         return "```\n" + "".join(adf_to_text(c) for c in content) + "\n```"
     return "".join(adf_to_text(c) for c in content)
+
+
+_URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
+
+
+def adf_urls(node: dict | None) -> list[str]:
+    """Every URL in an ADF document, in order: smart links (inlineCard/blockCard/embedCard
+    attrs.url), link marks (attrs.href) and plain-text URLs. adf_to_text drops the first two,
+    so callers that need links back out of descriptions/comments use this instead."""
+    urls: list[str] = []
+
+    def walk(n) -> None:
+        if not isinstance(n, dict):
+            return
+        attrs = n.get("attrs") or {}
+        if n.get("type") in ("inlineCard", "blockCard", "embedCard") and attrs.get("url"):
+            urls.append(attrs["url"])
+        for mark in n.get("marks") or []:
+            if mark.get("type") == "link" and (mark.get("attrs") or {}).get("href"):
+                urls.append(mark["attrs"]["href"])
+        if n.get("type") == "text":
+            urls.extend(m.rstrip(".,;:") for m in _URL_RE.findall(n.get("text", "")))
+        for child in n.get("content") or []:
+            walk(child)
+
+    walk(node)
+    return urls
 
 
 def _attachment_from_json(item: dict) -> Attachment:
@@ -258,6 +291,11 @@ class JiraClient:
         return [(item["object"]["url"], item["object"].get("title", ""))
                 for item in self._get(f"/issue/{key}/remotelink")]
 
+    def get_text_links(self, key: str) -> list[str]:
+        fields = self._get(f"/issue/{key}", params={"fields": "description,comment"})["fields"]
+        bodies = [fields.get("description"), *[c["body"] for c in fields.get("comment", {}).get("comments", [])]]
+        return [url for body in bodies for url in adf_urls(body)]
+
     def _board_id_for_project(self) -> int:
         if self._board_id is None:
             boards = self._agile_get("/board", params={"projectKeyOrId": self.project_key})["values"]
@@ -304,8 +342,11 @@ class JiraClient:
 
     def status_changes_since(self, key: str, since: str) -> list[StatusEvent]:
         events = []
+        since_at = datetime.fromisoformat(since)
         for entry in self._get_all_changelog(key):
-            if entry.get("created", "") < since:
+            # a datetime compare, not a string compare: Jira's offset (+0530) differs from the
+            # checkpoint's (+00:00), and comparing them as text replays every old event forever
+            if not entry.get("created") or datetime.fromisoformat(entry["created"]) < since_at:
                 continue
             for item in entry.get("items", []):
                 if item.get("field") == "status":

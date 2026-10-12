@@ -31,8 +31,8 @@ export function PreviewPanel({ preview, hasTargets, onTrigger }: Props) {
                 ))}
               </ul>
               <p className="muted">
-                Provide = attach the artifact (one Confluence link, or one .xlsx/.pdf/.docx/.csv file) to its Jira
-                ticket and mark it Done. The workflow continues on its own from there.
+                Provide = attach the artifact (a Confluence page link — as a Jira Web link or pasted in a comment — or
+                one .xlsx/.pdf/.docx/.csv file) to its Jira ticket and mark it Done. The workflow continues on its own from there.
               </p>
             </>
           )}
