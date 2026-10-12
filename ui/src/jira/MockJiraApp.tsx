@@ -18,6 +18,7 @@ export default function MockJiraApp() {
   const [board, setBoard] = useState<BoardView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [epic, setEpic] = useState(""); // backlog filter, set from the sidebar or the backlog toolbar
+  const [toast, setToast] = useState<string | null>(null); // key of the issue just created
   const [creating, setCreating] = useState<{ sprintId: number | null; type?: string } | null>(null);
 
   const reload = useCallback(
@@ -32,6 +33,11 @@ export default function MockJiraApp() {
   useEffect(() => {
     if (window.location.pathname.replace(/\/$/, "") === "/jira") navigate("/jira/backlog", true);
   }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 7000);
+    return () => clearTimeout(timer);
+  }, [toast]);
   useEffect(() => {
     document.title = board ? `${board.project.name} – Mock Jira` : "Mock Jira";
   }, [board]);
@@ -72,9 +78,15 @@ export default function MockJiraApp() {
           )}
         </div>
       </div>
+      {toast && (
+        <div className="mj-toast" role="status">
+          ✓ Created <Link to={`/jira/browse/${toast}`}>{toast}</Link>
+          <button className="link-button" onClick={() => setToast(null)} aria-label="Dismiss">✕</button>
+        </div>
+      )}
       {creating && board && (
         <CreateIssueDialog board={board} sprintId={creating.sprintId} initialType={creating.type} onClose={() => setCreating(null)}
-          onCreated={(key) => { setCreating(null); reload(); navigate(`/jira/browse/${key}`); }} />
+          onCreated={(key) => { setToast(key); reload(); }} />
       )}
     </div>
   );

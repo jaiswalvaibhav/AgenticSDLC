@@ -1,10 +1,15 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import * as api from "./api";
 import { isSubtask, message } from "./parts";
 import type { BoardView, Sprint } from "./types";
 
 // Reuses the workflow page's .overlay/.dialog look.
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog mj-dialog" role="dialog" aria-label={title}>
@@ -15,15 +20,15 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
-function useSubmit(done: () => void) {
+function useSubmit<T>(done: (result: T) => void) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const submit = (action: () => Promise<unknown>) => async (e: FormEvent) => {
+  const submit = (action: () => Promise<T>) => async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
-      await action();
-      done();
+      done(await action());
     } catch (err) {
       setError(message(err));
     } finally {
@@ -47,8 +52,18 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
   const [pts, setPts] = useState("");
   const [labels, setLabels] = useState("");
   const [sprint, setSprint] = useState(sprintId === null ? "" : String(sprintId));
-  const [created, setCreated] = useState<string | null>(null);
-  const { error, busy, submit } = useSubmit(() => created && onCreated(created));
+  const [another, setAnother] = useState(false);
+  const summaryRef = useRef<HTMLInputElement>(null);
+  // created: tell the page (it shows "Created MOCK-n"), then close, or clear the text for the next one
+  const { error, busy, submit } = useSubmit<string>((key) => {
+    onCreated(key);
+    if (!another) return onClose();
+    setSummary("");
+    setDescription("");
+    setLabels("");
+    setPts("");
+    summaryRef.current?.focus();
+  });
   const needsParent = isSubtask({ issuetype: type });
   const parents = board.issues.filter((i) => !isSubtask(i));
 
@@ -59,7 +74,7 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
       labels: labels.split(",").map((l) => l.trim()).filter(Boolean),
       sprint_id: sprint === "" ? null : Number(sprint),
     });
-    setCreated(result.key);
+    return result.key;
   });
 
   return (
@@ -71,7 +86,7 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
           </select>
         </label>
         <label>Summary
-          <input autoFocus required value={summary} onChange={(e) => setSummary(e.target.value)} />
+          <input ref={summaryRef} autoFocus required value={summary} onChange={(e) => setSummary(e.target.value)} />
         </label>
         <label>Description
           <textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -103,8 +118,12 @@ export function CreateIssueDialog({ board, sprintId, initialType, onClose, onCre
         </label>
         {error && <p className="error">{error}</p>}
         <div className="buttons">
+          <label className="mj-another">
+            <input type="checkbox" checked={another} onChange={(e) => setAnother(e.target.checked)} /> Create another
+          </label>
+          <span className="mj-spacer" />
           <button type="button" onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={busy || !summary.trim()}>Create</button>
+          <button className="primary" disabled={busy || !summary.trim()}>{busy ? "Creating…" : "Create"}</button>
         </div>
       </form>
     </Modal>

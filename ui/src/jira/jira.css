@@ -112,3 +112,6 @@ button.mj-danger { color: var(--err); border-color: var(--err); }
 .mj-progress { display: flex; align-items: center; gap: 6px; }
 .mj-bar { flex: 1; min-width: 60px; max-width: 160px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; flex-shrink: 0; }
 .mj-bar > span { display: block; height: 100%; background: var(--ok); }
+
+.mj-toast { position: fixed; left: 20px; bottom: 20px; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 6px; background: var(--panel); border: 1px solid var(--ok); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+.mj-another { display: flex; flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 13px !important; color: var(--text) !important; }
