@@ -61,12 +61,14 @@ def page_roles(monkeypatch):
 
 def _step_tickets(store: FakeObjectStore, tickets: FakeTicketSystem, *, dds=None, tds=None) -> None:
     """Creates the DDS/TDS step tickets and records them in steps.json. `dds`/`tds` are
-    ("link", page_id) or ("file", filename, bytes) artifacts attached to the ticket."""
+    ("link", page_id), ("text", page_id) or ("file", filename, bytes) artifacts on the ticket."""
     steps = {}
     for step_id, artifact in (("data_design_solution", dds), ("technical_design_solution", tds)):
         key = tickets.create_issue("Story", step_id, dry_run=False).key
         steps[step_id] = key
-        if artifact and artifact[0] == "link":
+        if artifact and artifact[0] == "text":  # the page URL only mentioned in a comment
+            tickets.text_links[key] = [f"https://x.atlassian.net/wiki/spaces/S/pages/{artifact[1]}/T"]
+        elif artifact and artifact[0] == "link":
             tickets.add_remote_link(key, f"https://x.atlassian.net/wiki/spaces/S/pages/{artifact[1]}/T",
                                     step_id, dry_run=False)
         elif artifact:
@@ -206,3 +208,18 @@ def test_read_task_anchors_is_generic_over_roles(tmp_path):
                                         doc_source=FakeDocumentSource(), store=store, data_dir=tmp_path)
 
     assert label == "Data Design Solution" and doc.sections == [("a.csv", "a,b")]
+
+
+def test_anchor_pasted_in_a_comment_is_read_like_a_web_link(tmp_path, cfg):
+    store = FakeObjectStore()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>Layers</h2><p>Raw.</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>Pipeline</h2><p>Daily.</p>")
+    tickets = FakeTicketSystem()
+    _step_tickets(store, tickets, dds=("text", "1"), tds=("text", "2"))
+    agent = FakeStrandsAgent(SolutionRequirementsPlan(summary="", requirements=[]))
+
+    result, _ = _run(store, tickets, cfg, agent)
+
+    assert result["status"] == "planned"
+    [(_, content)] = agent.calls
+    assert "Layers" in content[0]["text"] and "Pipeline" in content[1]["text"]

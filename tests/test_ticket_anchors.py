@@ -8,9 +8,10 @@ from sdlc.ports import Attachment
 PAGE = "https://x.atlassian.net/wiki/spaces/S/pages/4194305/Technical+Design"
 
 
-def _tickets(links=(), files=()):
+def _tickets(links=(), files=(), text=()):
     t = FakeTicketSystem()
     issue = t.create_issue("Story", "DDS", dry_run=False)
+    t.text_links[issue.key] = list(text)
     for url, title in links:
         t.add_remote_link(issue.key, url, title, dry_run=False)
     t.attachments[issue.key] = [Attachment(f"a{i}", name, "x/y", f"https://dl/{i}") for i, name in enumerate(files)]
@@ -56,4 +57,44 @@ def test_raises_on_two_links_and_on_two_attachments():
         pick_anchor_source(key, t)
     t, key = _tickets(files=["a.xlsx", "b.pdf"])
     with pytest.raises(AnchorMissing, match="2 attachments"):
+        pick_anchor_source(key, t)
+
+
+# ------------------------------------------- a link pasted into the description/comments --
+def test_confluence_page_in_a_comment_is_used_when_there_is_nothing_else():
+    t, key = _tickets(text=[PAGE])
+    assert pick_anchor_source(key, t) == ConfluenceSource(
+        page_id="4194305", title="Technical Design", via="comment/description")
+
+
+def test_the_same_page_mentioned_twice_is_one_source():
+    t, key = _tickets(text=[PAGE, PAGE + "?focusedCommentId=9", PAGE])
+    assert pick_anchor_source(key, t).page_id == "4194305"
+
+
+def test_web_link_and_attachment_beat_a_page_mentioned_in_a_comment():
+    other = PAGE.replace("4194305", "777")
+    t, key = _tickets(links=[(PAGE, "TDS")], text=[other])
+    assert pick_anchor_source(key, t).page_id == "4194305"  # the Web link, not the comment's page
+
+    t, key = _tickets(files=["a.xlsx"], text=[PAGE])
+    assert isinstance(pick_anchor_source(key, t), AttachmentSource)
+
+
+def test_an_unreadable_attachment_does_not_block_the_comment_fallback():
+    t, key = _tickets(files=["TDS.doc"], text=[PAGE])
+    assert pick_anchor_source(key, t).via == "comment/description"
+
+
+def test_two_different_pages_in_comments_are_ambiguous_and_name_the_fix():
+    t, key = _tickets(text=[PAGE, PAGE.replace("4194305/Technical+Design", "777/Other+Page")])
+    with pytest.raises(AnchorMissing) as exc:
+        pick_anchor_source(key, t)
+    assert "2 different Confluence pages" in exc.value.reason and "Web link" in exc.value.reason
+
+
+def test_only_confluence_page_urls_in_comments_count():
+    t, key = _tickets(text=["https://example.com/pages/123/x", "https://github.com/o/r/pages/9",
+                            "https://x.atlassian.net/browse/DEMO-1", "https://x.atlassian.net/wiki/x/AbC"])
+    with pytest.raises(AnchorMissing, match="nothing usable"):
         pick_anchor_source(key, t)

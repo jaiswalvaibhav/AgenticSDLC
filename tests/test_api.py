@@ -170,12 +170,24 @@ def test_progress_reflects_uploaded_artifacts_run_state_and_comments(live, ticke
     assert rows["data_design_solution"]["done"] is True
     assert rows["data_design_solution"]["files"] == ["DDS_v3.xlsx"]
     assert rows["data_design_solution"]["anchor"] == {"ok": True, "kind": "file", "name": "DDS_v3.xlsx"}
-    assert rows["technical_design_solution"]["anchor"] == {"ok": True, "kind": "link", "name": "TDS"}
+    assert rows["technical_design_solution"]["anchor"] == {
+        "ok": True, "kind": "link", "name": "TDS", "via": "web link"}
     assert rows["technical_design_solution"]["links"] == [
         {"url": "https://x.atlassian.net/wiki/spaces/S/pages/42/TDS", "title": "TDS"}]
     automated = rows["develop_solution_requirements"]
     assert automated["run_state"] == "awaiting_approval" and automated["plan_ready"] is True
     assert automated["recent_comments"] == ["c2", "c3", "c4"]
+
+
+def test_progress_shows_where_a_comment_link_was_found(live, tickets):
+    steps = _run(live).json()["steps"]
+    tickets.text_links[steps["technical_design_solution"]] = [
+        "https://x.atlassian.net/wiki/spaces/S/pages/42/9.+Technical+Design+Solution"]
+
+    rows = {r["step_id"]: r for r in live.post(f"/api/runs/{UC}/refresh").json()["steps"]}
+
+    assert rows["technical_design_solution"]["anchor"] == {
+        "ok": True, "kind": "link", "name": "9. Technical Design Solution", "via": "comment/description"}
 
 
 def test_progress_is_cached_until_refreshed(live, tickets):

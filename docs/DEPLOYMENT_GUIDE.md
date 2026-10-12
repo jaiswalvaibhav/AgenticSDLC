@@ -208,9 +208,12 @@ Story/Sub-task and moves it to Done in Jira. Then, the next step —
 analyst agent once its inputs (`data_design_solution`, `technical_design_solution`)
 are Done.
 
-The analyst reads its anchors (DDS, TDS) straight off those step tickets, so each one must carry
-**exactly one** of: a Confluence page link (preferred), or an `.xlsx`/`.xlsm`/`.pdf`/`.docx`/`.csv`
-attachment. After `seed`, link the seeded DDS/TDS pages on their step tickets before marking them
+The analyst reads its anchors (DDS, TDS) straight off those step tickets. Each ticket needs
+**exactly one** of, in order of preference: a Confluence page **Web link** (Jira's Link → Web link), an
+`.xlsx`/`.xlsm`/`.pdf`/`.docx`/`.csv` attachment, or — if it has neither — a single Confluence page URL
+pasted into its description or a comment (smart link, hyperlink or bare URL all work). If a ticket mentions
+two different pages in its comments the step stops and asks you to add the right one as a Web link, which
+always wins. After `seed`, link the seeded DDS/TDS pages on their step tickets before marking them
 Done. If a ticket is marked Done with nothing usable, the orchestrator comments on it; attaching
 afterwards fires no status event, so move it back to In Progress and mark it Done again.
 Anchors above `analyst.max_anchor_chars` / `max_pdf_bytes` (`config.yaml`) block rather than truncate.

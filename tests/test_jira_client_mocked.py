@@ -3,7 +3,7 @@ shapes documented (and flagged as unverified where applicable) in adapters/jira.
 """
 import pytest
 
-from sdlc.adapters.jira import JiraClient
+from sdlc.adapters.jira import JiraClient, adf_urls
 from sdlc.ports import TransitionNotAvailable
 from tests._mock_http import FakeResponse, FakeSession
 
@@ -241,3 +241,39 @@ def test_get_remote_links_returns_url_title_pairs(client):
 
     assert client.get_remote_links("DEMO-1") == [
         ("https://x.atlassian.net/wiki/spaces/S/pages/42/Doc", "TDS"), ("https://example.com/y", "")]
+
+
+_PAGE = "https://x.atlassian.net/wiki/spaces/S/pages/42/Doc"
+
+
+def _doc(*inline):
+    return {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": list(inline)}]}
+
+
+def test_adf_urls_finds_smart_links_hyperlinks_and_bare_urls_in_order():
+    doc = {"type": "doc", "version": 1, "content": [
+        {"type": "paragraph", "content": [
+            {"type": "text", "text": "see "},
+            {"type": "inlineCard", "attrs": {"url": _PAGE}},
+            {"type": "text", "text": " and "},
+            {"type": "text", "text": "the page", "marks": [{"type": "link", "attrs": {"href": _PAGE + "-2"}}]},
+            {"type": "text", "text": " or https://x.atlassian.net/wiki/spaces/S/pages/9/B, thanks."}]},
+        {"type": "blockCard", "attrs": {"url": _PAGE + "-3"}},
+        {"type": "bulletList", "content": [{"type": "listItem", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "(" + _PAGE + "-4)"}]}]}]}]}
+
+    assert adf_urls(doc) == [_PAGE, _PAGE + "-2", "https://x.atlassian.net/wiki/spaces/S/pages/9/B",
+                             _PAGE + "-3", _PAGE + "-4"]
+    assert adf_urls(None) == [] and adf_urls(_doc({"type": "text", "text": "no links"})) == []
+
+
+def test_get_text_links_reads_the_description_and_every_comment(client):
+    client._session.queue("GET", "/issue/DEMO-1", FakeResponse({"fields": {
+        "description": _doc({"type": "inlineCard", "attrs": {"url": _PAGE}}),
+        "comment": {"comments": [{"body": _doc({"type": "text", "text": "use " + _PAGE + "."})},
+                                 {"body": _doc({"type": "text", "text": "thanks"})}]}}}))
+
+    assert client.get_text_links("DEMO-1") == [_PAGE, _PAGE]
+
+    client._session.queue("GET", "/issue/DEMO-2", FakeResponse({"fields": {"description": None}}))
+    assert client.get_text_links("DEMO-2") == []

@@ -21,9 +21,9 @@ guidance, except where noted:
 - POST /rest/api/3/issueLink                  -> {"type": {"name": "Blocks"}, "inwardIssue", "outwardIssue"}
 - POST /rest/api/3/issue/{key}/remotelink     -> {"object": {"url": "...", "title": "..."}}
 - GET  /rest/api/3/issue/{key}?fields=description,comment -> ADF bodies; get_text_links() walks them
-  for URLs. `inlineCard` (a pasted/smart link) with attrs.url was confirmed against a real site
-  (2026-10-12); `link` marks (attrs.href) and `blockCard`/`embedCard` are the documented ADF
-  shapes but haven't been seen live; a bare URL typed into a comment arrives as plain text.
+  for URLs. Confirmed against a real site (2026-10-12): `inlineCard` (a pasted/smart link, with
+  attrs.url), `link` marks (a hyperlink, attrs.href) and a bare URL typed as plain text.
+  `blockCard`/`embedCard` are the documented ADF shapes but haven't been seen live.
 - GET  /rest/api/3/issue/{key}/remotelink     -> a top-level array of {"id", "object": {"url",
   "title"}, ...}. **NOT independently doc-verified this session** (the docs page kept
   truncating) — check it against a real response from your instance.

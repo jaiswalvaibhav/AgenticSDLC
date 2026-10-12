@@ -210,6 +210,28 @@ def test_done_step_with_confluence_link_gets_no_comment(tickets, store, cfg, mon
     assert key not in tickets.comments
 
 
+def test_done_step_with_a_confluence_page_in_a_comment_gets_no_comment(tickets, store, cfg, monkeypatch):
+    key, event = _done_event(tickets, store, monkeypatch)
+    tickets.text_links[key] = ["https://x.atlassian.net/wiki/spaces/S/pages/7/T"]
+    _handle(event, tickets, store, cfg, _FEEDS_AUTOMATED)
+    assert key not in tickets.comments
+
+
+def test_downstream_step_starts_when_the_inputs_artifact_is_only_a_comment_link(tickets, store, cfg, registry,
+                                                                              monkeypatch):
+    monkeypatch.setattr(orchestrator, "load_terminology", lambda uc: {"statuses": STATUSES})
+    a_key = _step_issue(tickets, store, UC, "a")
+    b_key = _step_issue(tickets, store, UC, "b")
+    tickets.transition_issue(a_key, STATUSES["done"], dry_run=False)
+    tickets.text_links[a_key] = ["https://x.atlassian.net/wiki/spaces/S/pages/7/T"]  # no attachment/Web link
+
+    orchestrator.handle_status_change(StatusEvent(a_key, STATUSES["in_progress"], STATUSES["done"]),
+                                       tickets=tickets, store=store, cfg=cfg, registry=registry,
+                                       agent=FakeAgentRuntime(), dry_run=False)
+
+    assert tickets.get_issue(b_key).status == STATUSES["in_progress"]
+
+
 def test_done_step_feeding_only_manual_steps_is_not_checked(tickets, store, cfg, monkeypatch):
     key, event = _done_event(tickets, store, monkeypatch)
     _handle(event, tickets, store, cfg, [Step("a", "analyst", (), "A", None), Step("b", "analyst", ("a",), "B", None)])
