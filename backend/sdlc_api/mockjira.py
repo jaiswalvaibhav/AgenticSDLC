@@ -53,7 +53,7 @@ class WebLink(BaseModel):
 
 class IssueLink(BaseModel):
     issue: str
-    relation: str = "blocks"  # "blocks" | "is blocked by" (this issue, relative to `issue`)
+    relation: str = "depends on"  # "depends on" | "is depended by": this issue, relative to `issue`
 
 
 class SprintCreate(BaseModel):
@@ -214,12 +214,14 @@ def build_router(client_for, changed) -> APIRouter:
 
     @router.post("/issues/{key}/links")
     def link(key: str, body: IssueLink, profile: str | None = None) -> dict:
-        if body.relation not in ("blocks", "is blocked by"):
-            raise HTTPException(status_code=400, detail="relation must be 'blocks' or 'is blocked by'")
+        if body.relation not in ("depends on", "is depended by"):
+            raise HTTPException(status_code=400, detail="relation must be 'depends on' or 'is depended by'")
         jira = client_for(profile)
         _do(jira.get_issue, body.issue)
-        blocker, blocked = (key, body.issue) if body.relation == "blocks" else (body.issue, key)
-        _do(jira.link_issues, blocked, blocker, "Blocks", dry_run=False)  # inward = the blocked one
+        # stored as Jira's "Blocks" link (the orchestrator and real Jira use that name): the issue
+        # that is depended on is the blocker, and `link_issues` takes the blocker first
+        blocker, dependent = (body.issue, key) if body.relation == "depends on" else (key, body.issue)
+        _do(jira.link_issues, blocker, dependent, "Blocks", dry_run=False)
         changed()
         return {"key": key}
 

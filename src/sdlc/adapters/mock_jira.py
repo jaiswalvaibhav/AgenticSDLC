@@ -298,14 +298,20 @@ class MockJiraClient:
 
     def link_issues(self, inward_key: str, outward_key: str, link_type: str = "Blocks",
                      dry_run: bool = True) -> None:
-        """Stored on both issues, from each one's point of view (as Jira's issuelinks are)."""
+        """`inward_key` <link_type> `outward_key`, as the orchestrator calls it: link_issues(dep, step,
+        "Blocks") means dep blocks step, i.e. step depends on dep. Stored on both issues from each
+        one's own point of view, as Jira's issuelinks are: `direction` is which description applies
+        to *this* issue ("outward" = it blocks `key`, "inward" = it is blocked by `key`)."""
         if dry_run:
-            print(f"[dry-run] would link {outward_key} -> {inward_key} ({link_type})")
+            print(f"[dry-run] would link {inward_key} {link_type} {outward_key}")
             return
-        for key, other, direction in ((inward_key, outward_key, "inward"),
-                                      (outward_key, inward_key, "outward")):
-            self._modify_issue(key, lambda d, o=other, di=direction: d["issue_links"].append(
-                {"type": link_type, "direction": di, "key": o}))
+        if inward_key == outward_key:
+            raise ValueError("an issue cannot be linked to itself")
+        for key, other, direction in ((inward_key, outward_key, "outward"),
+                                      (outward_key, inward_key, "inward")):
+            link = {"type": link_type, "direction": direction, "key": other}
+            # re-linking the same pair is a no-op: workflow_start links the steps again on every run
+            self._modify_issue(key, lambda d, lk=link: lk in d["issue_links"] or d["issue_links"].append(lk))
 
     def add_remote_link(self, key: str, url: str, title: str, dry_run: bool = True) -> None:
         if dry_run:

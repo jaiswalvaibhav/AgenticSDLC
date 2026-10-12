@@ -139,15 +139,18 @@ def test_weblinks_and_issue_links(api):
     link_id = api.get(f"{API}/issues/{a}").json()["remote_links"][0]["id"]
     assert api.delete(f"{API}/issues/{a}/weblinks/{link_id}").status_code == 200
 
-    assert api.post(f"{API}/issues/{a}/links", json={"issue": b, "relation": "blocks"}).status_code == 200
-    assert api.post(f"{API}/issues/{a}/links", json={"issue": b, "relation": "likes"}).status_code == 400
+    assert api.post(f"{API}/issues/{a}/links", json={"issue": b, "relation": "is depended by"}).status_code == 200
+    assert api.post(f"{API}/issues/{a}/links", json={"issue": b, "relation": "blocks"}).status_code == 400
     assert api.post(f"{API}/issues/{a}/links", json={"issue": "MOCK-99"}).status_code == 404
     a_link = api.get(f"{API}/issues/{a}").json()["links"][0]
     b_link = api.get(f"{API}/issues/{b}").json()["links"][0]
-    assert (a_link["direction"], a_link["key"]) == ("outward", b)  # a blocks b
-    assert (b_link["direction"], b_link["key"]) == ("inward", a)   # b is blocked by a
+    assert (a_link["direction"], a_link["key"]) == ("outward", b)  # b depends on a: a is depended by b
+    assert (b_link["direction"], b_link["key"]) == ("inward", a)   # b depends on a
     api.delete(f"{API}/issues/{a}/links/{b}")
     assert api.get(f"{API}/issues/{b}").json()["links"] == []
+    api.post(f"{API}/issues/{a}/links", json={"issue": b, "relation": "depends on"})  # the other way round
+    assert api.get(f"{API}/issues/{a}").json()["links"][0]["direction"] == "inward"
+    assert api.get(f"{API}/issues/{b}").json()["links"][0]["direction"] == "outward"
 
 
 def test_sprint_lifecycle_rank_and_rules(api):
@@ -300,3 +303,9 @@ def test_images_are_served_inline_and_sandboxed_other_files_download(api):
     assert image.headers["content-disposition"].startswith("inline")
     assert image.headers["content-security-policy"] == "sandbox" and image.headers["x-content-type-options"] == "nosniff"
     assert api.get(by_name["notes.docx"]).headers["content-disposition"].startswith("attachment")
+
+
+def test_linking_an_issue_to_itself_is_refused(api):
+    key = new_issue(api)
+    response = api.post(f"{API}/issues/{key}/links", json={"issue": key, "relation": "depends on"})
+    assert response.status_code == 400 and "itself" in response.json()["detail"]

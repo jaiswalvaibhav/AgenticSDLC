@@ -126,9 +126,9 @@ def test_search_unsupported_jql_raises(jira, jql):
 
 def test_links_are_stored_on_both_issues_and_removed_on_delete(jira):
     a, b = make(jira), make(jira)
-    jira.link_issues(a.key, b.key, "Blocks", dry_run=False)
-    assert jira._doc(a.key)["issue_links"] == [{"type": "Blocks", "direction": "inward", "key": b.key}]
-    assert jira._doc(b.key)["issue_links"] == [{"type": "Blocks", "direction": "outward", "key": a.key}]
+    jira.link_issues(a.key, b.key, "Blocks", dry_run=False)  # a blocks b (b depends on a)
+    assert jira._doc(a.key)["issue_links"] == [{"type": "Blocks", "direction": "outward", "key": b.key}]
+    assert jira._doc(b.key)["issue_links"] == [{"type": "Blocks", "direction": "inward", "key": a.key}]
     jira.delete_issue(a.key, dry_run=False)
     assert jira._doc(b.key)["issue_links"] == []
 
@@ -247,3 +247,14 @@ def test_parent_hierarchy_on_edit(jira):
                                 (sub, None, "needs a parent"), (epic, story, "epic cannot have a parent")]:
         with pytest.raises(ValueError, match=reason):
             jira.update_fields(key, parent=parent)
+
+
+def test_an_issue_cannot_be_linked_to_itself_and_relinking_a_pair_is_a_no_op(jira):
+    a, b = make(jira).key, make(jira).key
+    with pytest.raises(ValueError, match="itself"):
+        jira.link_issues(a, a, "Blocks", dry_run=False)
+    for _ in range(3):  # workflow_start links the steps again on every run
+        jira.link_issues(a, b, "Blocks", dry_run=False)
+    assert len(jira._doc(a)["issue_links"]) == 1 and len(jira._doc(b)["issue_links"]) == 1
+    jira.link_issues(b, a, "Blocks", dry_run=False)  # the opposite direction is a different link
+    assert len(jira._doc(a)["issue_links"]) == 2

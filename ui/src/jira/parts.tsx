@@ -3,6 +3,10 @@ import type { BoardView, IssueSummary } from "./types";
 export const isSubtask = (i: { issuetype: string }) => ["subtask", "sub-task"].includes(i.issuetype.toLowerCase());
 // The name the UI writes comments and history as (the backend's acting_as("You")): only its own comments are editable.
 export const ME = "You";
+// A "Blocks" link seen from one issue: it is blocked by the other (it depends on it), or it blocks the other
+// (the other depends on it). Other link types show their own name.
+export const linkLabel = (type: string, direction: "inward" | "outward") =>
+  type === "Blocks" ? (direction === "inward" ? "depends on" : "is depended by") : type;
 export const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // first status = to do, last = done, anything between = in progress (like Jira's status categories)

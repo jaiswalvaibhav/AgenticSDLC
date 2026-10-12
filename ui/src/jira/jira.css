@@ -142,3 +142,4 @@ button.mj-danger { color: var(--err); border-color: var(--err); }
 .mj-comment-main { flex: 1; min-width: 0; }
 .mj-comment-body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 2px 0; }
 .mj-comment-img { display: block; max-width: 100%; max-height: 360px; margin: 6px 0; border: 1px solid var(--border); border-radius: 4px; }
+.mj-add .mj-picker { flex: 2; min-width: 240px; }

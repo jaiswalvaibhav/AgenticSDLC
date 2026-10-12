@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import * as api from "./api";
 import { CommentBody, CommentBox } from "./Comments";
+import { IssuePicker } from "./IssuePicker";
 import { ParentPicker } from "./ParentPicker";
-import { Avatar, Lozenge, ME, Priority, TypeIcon, dateTime, isSubtask, message, statusCategory } from "./parts";
+import { Avatar, Lozenge, ME, Priority, TypeIcon, dateTime, isSubtask, linkLabel, message, statusCategory } from "./parts";
 import { Link, navigate } from "./route";
 import type { BoardView, IssueDetail } from "./types";
 
@@ -49,7 +50,7 @@ export function IssueView({ issueKey, board, reload }: Props) {
   const [tab, setTab] = useState<"comments" | "history">("comments");
   const [editing, setEditing] = useState<string | null>(null); // id of the comment being edited
   const [labelDraft, setLabelDraft] = useState("");
-  const [linkRelation, setLinkRelation] = useState<"blocks" | "is blocked by">("blocks");
+  const [linkRelation, setLinkRelation] = useState<"depends on" | "is depended by">("depends on");
   const [linkTarget, setLinkTarget] = useState("");
   const [webUrl, setWebUrl] = useState("");
   const [webTitle, setWebTitle] = useState("");
@@ -132,7 +133,7 @@ export function IssueView({ issueKey, board, reload }: Props) {
         <ul className="mj-refs">
           {issue.links.map((l) => (
             <li key={`${l.direction}-${l.key}`}>
-              <span className="muted">{l.type === "Blocks" ? (l.direction === "outward" ? "blocks" : "is blocked by") : l.type}</span>{" "}
+              <span className="muted">{linkLabel(l.type, l.direction)}</span>{" "}
               <TypeIcon type={l.issue.issuetype} /> <Link to={`/jira/browse/${l.key}`}>{l.key}</Link> {l.issue.summary}
               <span className="mj-spacer" /><Lozenge board={board} status={l.issue.status} />
               <button className="link-button" title="Remove link" onClick={() => act(() => api.unlinkIssue(issue.key, l.key))}>✕</button>
@@ -141,12 +142,11 @@ export function IssueView({ issueKey, board, reload }: Props) {
         </ul>
         <form className="mj-add" onSubmit={submit(() => api.linkIssue(issue.key, linkTarget, linkRelation), () => setLinkTarget(""))}>
           <select value={linkRelation} onChange={(e) => setLinkRelation(e.target.value as typeof linkRelation)}>
-            <option>blocks</option><option>is blocked by</option>
+            <option>depends on</option><option>is depended by</option>
           </select>
-          <select value={linkTarget} required onChange={(e) => setLinkTarget(e.target.value)}>
-            <option value="">Choose an issue…</option>
-            {others.map((i) => <option key={i.key} value={i.key}>{i.key} {i.summary}</option>)}
-          </select>
+          <IssuePicker board={board} value={linkTarget} onChange={setLinkTarget} noneLabel={null}
+            candidates={others.filter((i) => !issue.links.some((l) => l.key === i.key))}
+            placeholder="Choose a work item…" emptyText="Every other work item is already linked." />
           <button disabled={!linkTarget}>Link</button>
         </form>
 

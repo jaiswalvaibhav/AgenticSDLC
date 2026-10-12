@@ -27,6 +27,12 @@ def test_workflow_runs_against_the_mock(tmp_path):
     sprint = jira.get_or_create_future_sprint(dry_run=False)  # the step stories were placed here
     assert {jira._doc(k)["sprint_id"] for k in steps.values()} == {int(sprint)}
 
+    inputs = next(s for s in registry.all_steps() if s.id == TARGET).inputs
+    # the orchestrator links each dependency as blocking the step, so the step depends on its inputs
+    assert {lk["key"]: lk["direction"] for lk in jira._doc(steps[TARGET])["issue_links"]} == {steps[i]: "inward" for i in inputs}
+    assert all(jira._doc(steps[i])["issue_links"][0] == {"type": "Blocks", "direction": "outward", "key": steps[TARGET]}
+               for i in inputs)
+
     status_source = PollingStatusSource(jira, store, jira_project_key(cfg))
     assert status_source.poll(dry_run=False) == []  # first poll only sets the baseline
     inputs = next(s for s in registry.all_steps() if s.id == TARGET).inputs

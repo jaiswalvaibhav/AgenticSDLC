@@ -32,7 +32,7 @@ export const attachmentUrl = (key: string, id: string) => `/api/mockjira/issues/
 export const deleteAttachment = (key: string, id: string) => send("DELETE", `/issues/${enc(key)}/attachments/${enc(id)}`);
 export const addWebLink = (key: string, url: string, title: string) => send("POST", `/issues/${enc(key)}/weblinks`, { url, title });
 export const deleteWebLink = (key: string, id: string) => send("DELETE", `/issues/${enc(key)}/weblinks/${enc(id)}`);
-export const linkIssue = (key: string, issue: string, relation: "blocks" | "is blocked by") =>
+export const linkIssue = (key: string, issue: string, relation: "depends on" | "is depended by") =>
   send("POST", `/issues/${enc(key)}/links`, { issue, relation });
 export const unlinkIssue = (key: string, other: string) => send("DELETE", `/issues/${enc(key)}/links/${enc(other)}`);
 
