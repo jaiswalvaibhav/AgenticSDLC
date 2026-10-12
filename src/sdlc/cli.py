@@ -276,5 +276,28 @@ def workflow_start(
         typer.echo(f"  {step_id}: {key}")
 
 
+@workflow_app.command("cleanup")
+def workflow_cleanup(
+    use_case: str = typer.Option(..., "--use-case"),
+    dry_run: bool = True,
+) -> None:
+    """Delete ALL Jira issues of the use case (label uc:<use_case>) and the Confluence plan
+    page linked from them, forget the saved run and reset jira_checkpoint.json. Leaves the
+    Knowledge Base alone. Stop the UI poller / watch-progress first."""
+    from sdlc.agents.analyst.engine import _solution_requirements_page_title
+    from sdlc.workflow.cleanup import cleanup_run
+
+    cfg = load_config()
+    result = cleanup_run(tickets=jira_client(cfg), doc_source=confluence_client(cfg),
+                          store=object_store(cfg), use_case=use_case, dry_run=dry_run,
+                          plan_page_title=_solution_requirements_page_title(use_case))
+    typer.echo(f"jira issues: {', '.join(result['issues']) or 'none'}")
+    typer.echo(f"confluence pages: {', '.join(result['pages']) or 'none'}")
+    for key, reason in result["failed"].items():
+        typer.echo(f"FAILED to delete {key}: {reason}\nStopped: pages and saved state were left as they are.")
+        raise typer.Exit(code=1)
+    typer.echo("(dry-run: nothing deleted; use --no-dry-run)" if dry_run else "done")
+
+
 if __name__ == "__main__":
     app()

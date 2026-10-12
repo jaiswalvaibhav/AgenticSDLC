@@ -131,15 +131,32 @@ export default function App() {
   };
 
   const decide = async (row: ProgressRow, decision: "approve" | "reject") => {
-    const ask = decision === "approve"
-      ? `Approve the plan for "${row.artifact}"?\n\nThis creates one Story per requirement (each with Engineering and Testing sub-tasks) in Jira and marks this step Done.`
-      : `Reject the plan for "${row.artifact}"?\n\nThe agent will regenerate it (another LLM run).`;
-    if (!window.confirm(ask)) return;
+    let feedback: string | undefined;
+    if (decision === "approve") {
+      if (!window.confirm(`Approve the plan for "${row.artifact}"?\n\nThis creates one Story per requirement (each with Engineering and Testing sub-tasks) in Jira and marks this step Done.`)) return;
+    } else {
+      feedback = window.prompt(`Why is the plan for "${row.artifact}" rejected?\n\nThis is added to the Jira ticket as a comment. The plan is not regenerated; fix the issues, then re-run the step.`)?.trim();
+      if (!feedback) return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const result = await api.decide(useCase, row.step_id, decision, profile);
+      const result = await api.decide(useCase, row.step_id, decision, profile, feedback);
       setNotice(`Added the ${result.label} label to ${result.key}.${result.acting_now ? " The orchestrator is acting on it now." : " It will be acted on when polling runs."}`);
+      await load();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rerun = async (row: ProgressRow) => {
+    if (!window.confirm(`Re-run the agent for "${row.artifact}"? This is another LLM run.`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.rerun(useCase, row.step_id, profile);
       await load();
     } catch (e) {
       setError(message(e));
@@ -207,7 +224,7 @@ export default function App() {
 
       {progressError && <div className="banner error">Progress unavailable: {progressError}</div>}
       <RunBanner info={runInfo} busy={busy} onStartFresh={startFresh} />
-      <ProgressTable progress={progress} busy={busy} onRefresh={refresh} onDecide={decide} />
+      <ProgressTable progress={progress} busy={busy} onRefresh={refresh} onDecide={decide} onRerun={rerun} />
 
       {dialogOpen && meta && preview && (
         <TriggerDialog meta={meta} profile={profile} useCase={useCase} preview={preview} busy={busy}

@@ -305,7 +305,7 @@ def test_check_approvals_places_new_requirement_stories_in_future_sprint(tickets
     assert story.key in keys
 
 
-def test_reject_with_an_agent_removes_the_label_and_regenerates_the_plan(tickets, store, cfg):
+def test_reject_removes_the_label_and_stops_without_regenerating(tickets, store, cfg):
     registry = WorkflowRegistry([Step("b", "analyst", (), "B", "analyst.b")])
     key = _step_issue(tickets, store, UC, "b")
     store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
@@ -315,27 +315,22 @@ def test_reject_with_an_agent_removes_the_label_and_regenerates_the_plan(tickets
     acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False,
                                           registry=registry, agent=agent)
 
-    assert acted == ["b"]
-    assert [c[0] for c in agent.calls] == ["analyst.b"]
-    assert cfg["jira"]["reject_label"] not in tickets.get_issue(key).labels  # can't regenerate twice
-    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "awaiting_approval"
-    assert tickets.comments[key] == ["Rejected — regenerating the plan."]
+    assert acted == ["b"] and agent.calls == []
+    assert cfg["jira"]["reject_label"] not in tickets.get_issue(key).labels
+    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "rejected"
 
 
-def test_reject_regeneration_that_does_not_produce_a_plan_leaves_the_step_ready(tickets, store, cfg):
+def test_rerun_requested_runs_the_agent_again(tickets, store, cfg):
     registry = WorkflowRegistry([Step("b", "analyst", (), "B", "analyst.b")])
-    key = _step_issue(tickets, store, UC, "b")
-    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
-    tickets.add_label(key, cfg["jira"]["reject_label"], dry_run=False)
-
-    class Blocked:
-        def run(self, task_id, context):
-            return {"status": "blocked"}
+    _step_issue(tickets, store, UC, "b")
+    store.put_json(f"workflow/{UC}/run_state.json", {"b": "rerun_requested"}, dry_run=False)
+    agent = FakeAgentRuntime()
 
     orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False,
-                                  registry=registry, agent=Blocked())
+                                  registry=registry, agent=agent)
 
-    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "ready"
+    assert [c[0] for c in agent.calls] == ["analyst.b"]
+    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "awaiting_approval"
 
 
 def test_a_failing_agent_is_reported_on_the_ticket_instead_of_crashing_the_cycle(tickets, store, cfg, monkeypatch):
@@ -356,17 +351,6 @@ def test_a_failing_agent_is_reported_on_the_ticket_instead_of_crashing_the_cycle
 
     assert tickets.comments[b_key][-1] == "Agent run failed: RuntimeError: LoginRefreshRequired"
     assert (store.get_json(f"workflow/{UC}/run_state.json") or {}).get("b") is None
-
-
-def test_check_approvals_regenerates_on_reject(tickets, store, cfg):
-    key = _step_issue(tickets, store, UC, "b")
-    store.put_json(f"workflow/{UC}/run_state.json", {"b": "awaiting_approval"}, dry_run=False)
-    tickets.add_label(key, cfg["jira"]["reject_label"], dry_run=False)
-
-    acted = orchestrator.check_approvals(tickets=tickets, store=store, cfg=cfg, use_case=UC, dry_run=False)
-
-    assert acted == ["b"]
-    assert store.get_json(f"workflow/{UC}/run_state.json")["b"] == "ready"
 
 
 # --------------------------------------------------------------- workflow_start --

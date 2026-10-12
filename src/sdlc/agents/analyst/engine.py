@@ -305,7 +305,7 @@ def run_solution_requirements(context: dict, *, doc_source: DocumentSource,
         issue_key,
         f"Plan ready: {len(plan.requirements)} requirements across {workstream_count} "
         f"workstream(s).\n\n{plan.summary}\n\nAdd the '{cfg['jira']['approval_label']}' "
-        f"label to apply it, or '{cfg['jira']['reject_label']}' to regenerate.",
+        f"label to apply it, or '{cfg['jira']['reject_label']}' to reject it (add a comment saying why).",
         dry_run=dry_run,
     )
     tickets.add_remote_link(issue_key, page.url, page.title, dry_run=dry_run)

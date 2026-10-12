@@ -411,9 +411,21 @@ def test_approve_adds_the_approval_label_and_wakes_the_poller(live, tickets, sto
 def test_reject_adds_the_reject_label(live, tickets, store):
     key = _awaiting(live, store)
 
-    live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/reject")
+    url = f"/api/runs/{UC}/steps/develop_solution_requirements/reject"
+    assert live.post(url).status_code == 422  # feedback is required
+    live.post(url, json={"feedback": "missing the SLA requirement"})
 
     assert "sdlc-rejected" in tickets.issues[key].labels and "sdlc-approved" not in tickets.issues[key].labels
+    assert tickets.comments[key][-1] == "Plan rejected: missing the SLA requirement"
+
+
+def test_rerun_only_after_a_rejection(live, store):
+    _awaiting(live, store)
+    url = f"/api/runs/{UC}/steps/develop_solution_requirements/rerun"
+    assert live.post(url).status_code == 409
+    store.put_json(f"workflow/{UC}/run_state.json", {"develop_solution_requirements": "rejected"}, dry_run=False)
+    assert live.post(url).status_code == 200
+    assert store.get_json(f"workflow/{UC}/run_state.json")["develop_solution_requirements"] == "rerun_requested"
 
 
 def test_decision_needs_a_plan_awaiting_approval_and_only_one_at_a_time(live, tickets, store):
@@ -425,7 +437,7 @@ def test_decision_needs_a_plan_awaiting_approval_and_only_one_at_a_time(live, ti
     store.put_json(f"workflow/{UC}/run_state.json", {"develop_solution_requirements": "awaiting_approval"},
                    dry_run=False)
     assert live.post(url).status_code == 200
-    again = live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/reject")
+    again = live.post(f"/api/runs/{UC}/steps/develop_solution_requirements/reject", json={"feedback": "x"})
     assert again.status_code == 409 and "already pending" in again.json()["detail"]
 
 

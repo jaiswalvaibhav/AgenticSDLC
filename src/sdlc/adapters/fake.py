@@ -46,6 +46,10 @@ class FakeDocumentSource:
     def get_page(self, page_id: str) -> Page:
         return self.pages[page_id]
 
+    def delete_page(self, page_id: str, dry_run: bool = True) -> None:
+        if not dry_run:
+            self.pages.pop(page_id, None)
+
     def find_page_by_title(self, title: str) -> Page | None:
         return next((p for p in self.pages.values() if p.title == title), None)
 
@@ -180,6 +184,10 @@ class FakeTicketSystem:
     def remove_label(self, key: str, label: str, dry_run: bool = True) -> None:
         if not dry_run and label in self.issues[key].labels:
             self.issues[key].labels.remove(label)
+
+    def delete_issue(self, key: str, dry_run: bool = True) -> None:
+        if not dry_run:
+            self.issues.pop(key, None)
 
     def search(self, jql: str) -> list[Issue]:
         """Minimal JQL matcher covering only the clauses this project's own code emits

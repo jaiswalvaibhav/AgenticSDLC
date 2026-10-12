@@ -266,6 +266,17 @@ class JiraClient:
                                   json={"update": {"labels": [{"remove": label}]}})
         resp.raise_for_status()
 
+    def delete_issue(self, key: str, dry_run: bool = True) -> None:
+        """DELETE /rest/api/3/issue/{key}?deleteSubtasks=true. Needs the project's Delete
+        issues permission (403 without it). An already-deleted issue (404) is fine."""
+        if dry_run:
+            print(f"[dry-run] would delete {key}")
+            return
+        resp = self._session.delete(f"{self.base_url}/rest/api/3/issue/{key}",
+                                     params={"deleteSubtasks": "true"})
+        if resp.status_code != 404:
+            resp.raise_for_status()
+
     def search(self, jql: str) -> list[Issue]:
         issues, next_token = [], None
         while True:

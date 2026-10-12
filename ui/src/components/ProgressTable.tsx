@@ -6,6 +6,7 @@ interface Props {
   busy: boolean;
   onRefresh: () => void;
   onDecide: (row: ProgressRow, decision: "approve" | "reject") => void;
+  onRerun: (row: ProgressRow) => void;
 }
 
 function artifactCell(row: ProgressRow) {
@@ -24,7 +25,12 @@ function artifactCell(row: ProgressRow) {
   );
 }
 
-function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide: Props["onDecide"]) {
+function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide: Props["onDecide"], onRerun: Props["onRerun"]) {
+  if (row.run_state === "awaiting_approval" && row.decision_pending) {
+    return row.decision_pending === "approve"
+      ? "approving: creating the Stories and sub-tasks in Jira… (can take a minute)"
+      : "rejecting: recording the feedback in Jira…";
+  }
   if (row.run_state === "awaiting_approval") {
     return (
       <>
@@ -48,11 +54,22 @@ function stateCell(row: ProgressRow, progress: Progress, busy: boolean, onDecide
   }
   if (row.run_state === "regenerating") return "regenerating the plan…";
   if (row.run_state === "applied") return "applied";
-  if (row.run_state === "ready") return "regenerating after reject";
+  if (row.run_state === "rejected" || row.run_state === "ready") {
+    return (
+      <>
+        <strong>rejected</strong>
+        <div className="muted small">Feedback is on the Jira ticket. Fix the issues, then re-run.</div>
+        <div className="actions">
+          <button disabled={busy} onClick={() => onRerun(row)}>Re-run</button>
+        </div>
+      </>
+    );
+  }
+  if (row.run_state === "rerun_requested") return "re-run requested, starting…";
   return row.plan_ready ? "plan exists" : "";
 }
 
-export function ProgressTable({ progress, busy, onRefresh, onDecide }: Props) {
+export function ProgressTable({ progress, busy, onRefresh, onDecide, onRerun }: Props) {
   return (
     <section className="panel">
       <div className="panel-head">
@@ -94,7 +111,7 @@ export function ProgressTable({ progress, busy, onRefresh, onDecide }: Props) {
                 </td>
                 <td>{row.status}</td>
                 <td>{artifactCell(row)}</td>
-                <td>{stateCell(row, progress, busy, onDecide)}</td>
+                <td>{stateCell(row, progress, busy, onDecide, onRerun)}</td>
                 <td className="comment">
                   <Clamp text={row.recent_comments.at(-1) ?? ""} />
                 </td>

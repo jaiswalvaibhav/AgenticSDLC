@@ -41,6 +41,7 @@ export interface ProgressRow {
   links: { url: string; title: string }[];
   anchor: Anchor | null;
   run_state: string | null;
+  decision_pending: "approve" | "reject" | null;
   plan_ready: boolean | null;
   llm_usage: { calls: number; runs: number } | null;
   recent_comments: string[];

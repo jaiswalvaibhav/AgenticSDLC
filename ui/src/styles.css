@@ -59,7 +59,8 @@ code { background: var(--border); padding: 0 4px; border-radius: 3px; }
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; padding: 16px; }
 .dialog { background: var(--panel); border-radius: 10px; padding: 20px; max-width: 520px; width: 100%; }
 .dialog h2 { margin-top: 0; }
-.dialog .warn { display: flex; gap: 8px; align-items: flex-start; color: var(--warn); margin: 12px 0; }
+.dialog .warn { color: var(--warn); margin: 12px 0; }
+.dialog label.warn { display: flex; gap: 8px; align-items: flex-start; }
 .dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog .buttons .primary { margin-top: 0; }
 .banner.info, .banner.warn { display: flex; justify-content: space-between; align-items: center; gap: 12px; }

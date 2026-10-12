@@ -93,6 +93,9 @@ def build_progress(*, use_case: str, registry: WorkflowRegistry, tickets: Ticket
             "links": [{"url": url, "title": title} for url, title in tickets.get_remote_links(key)],
             "anchor": _anchor(step.id, key, tickets) if step.id in feeds_automation else None,
             "run_state": run_state.get(step.id),
+            "decision_pending": next((d for d, lbl in (("approve", cfg["jira"]["approval_label"]),
+                                                      ("reject", cfg["jira"]["reject_label"]))
+                                      if lbl in issue.labels), None),
             "plan_ready": plan_ready if step.automation else None,
             "llm_usage": llm_usage.get(step.id),
             "recent_comments": issue.comments[-3:],

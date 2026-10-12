@@ -247,6 +247,15 @@ class ConfluenceClient:
         resp.raise_for_status()
         return self.get_page(page_id)
 
+    def delete_page(self, page_id: str, dry_run: bool = True) -> None:
+        """DELETE /wiki/api/v2/pages/{id}: a current page goes to the space trash."""
+        if dry_run:
+            print(f"[dry-run] would delete page {page_id}")
+            return
+        resp = self._session.delete(f"{self.base_url}/wiki/api/v2/pages/{page_id}")
+        if resp.status_code != 404:
+            resp.raise_for_status()
+
     def move_page(self, page_id: str, *, title: str | None = None, parent_id: str | None = None,
                    dry_run: bool = True) -> Page:
         """Rename and/or reparent a page within the same space. Verified against the

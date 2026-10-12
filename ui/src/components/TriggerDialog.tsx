@@ -34,8 +34,10 @@ export function TriggerDialog({ meta, profile, useCase, preview, busy, error, on
         {needsLlmConfirm && (
           <label className="warn">
             <input type="checkbox" checked={confirmLlm} onChange={(e) => setConfirmLlm(e.target.checked)} />
-            Allow billed calls to <strong>{meta.external_llm_provider}</strong> (your own account, not AWS Bedrock)
-            for this run
+            <span>
+              Allow billed calls to <strong>{meta.external_llm_provider}</strong> (your own account, not AWS Bedrock)
+              for this run
+            </span>
           </label>
         )}
         {billed && meta.auto_confirm_external_llm && (

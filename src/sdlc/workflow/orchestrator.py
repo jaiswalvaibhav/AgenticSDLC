@@ -299,20 +299,31 @@ def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use
                      dry_run: bool = True, registry: WorkflowRegistry | None = None,
                      agent: AgentRuntime | None = None) -> list[str]:
     """Polled once per sync cycle (see cli.py sync-progress), separately from
-    handle_status_change — a label add isn't a status change. Returns the step ids that
-    were applied or sent back for regeneration this call. With a registry and an agent, a
-    rejection removes the label and regenerates the plan right away (back to
-    awaiting_approval); without them it only marks the step "ready" to regenerate."""
+    handle_status_change — a label add isn't a status change. Returns the step ids acted
+    on this call. Approval applies the plan. Rejection removes the label and stops the step
+    ("rejected") — the plan is NOT regenerated; the user fixes the issues and asks for a
+    re-run (run state "rerun_requested"), which runs the agent again here."""
     statuses = load_terminology(use_case)["statuses"]
     run_state = _run_state(store, use_case)
     steps_map = _steps_map(store, use_case)
     acted = []
 
     for step_id, state in list(run_state.items()):
-        if state != "awaiting_approval":
-            continue
         key = steps_map.get(step_id)
         if not key:
+            continue
+        if state == "rerun_requested":
+            step = registry[step_id] if registry and step_id in registry else None
+            if agent is None or step is None or not step.automation:
+                continue
+            run_state[step_id] = "regenerating"  # visible while the agent runs (a UI shows no buttons)
+            _save_run_state(store, use_case, run_state, dry_run)
+            planned = _run_agent(step, key, tickets=tickets, use_case=use_case, agent=agent,
+                                 dry_run=dry_run) == "planned"
+            run_state[step_id] = "awaiting_approval" if planned else "rejected"
+            acted.append(step_id)
+            continue
+        if state != "awaiting_approval":
             continue
         issue = tickets.get_issue(key)
         if cfg["jira"]["approval_label"] in issue.labels:
@@ -321,19 +332,10 @@ def check_approvals(*, tickets: TicketSystem, store: ObjectStore, cfg: dict, use
             run_state[step_id] = "applied"
             acted.append(step_id)
         elif cfg["jira"]["reject_label"] in issue.labels:
-            step = registry[step_id] if registry and step_id in registry else None
-            if agent is None or step is None or not step.automation:
-                tickets.add_comment(key, "Rejected — plan will be regenerated.", dry_run=dry_run)
-                run_state[step_id] = "ready"
-            else:
-                # take the label off first, so one rejection can't trigger a second regeneration
-                tickets.remove_label(key, cfg["jira"]["reject_label"], dry_run=dry_run)
-                tickets.add_comment(key, "Rejected — regenerating the plan.", dry_run=dry_run)
-                run_state[step_id] = "regenerating"  # visible while the agent runs (a UI shows no buttons)
-                _save_run_state(store, use_case, run_state, dry_run)
-                planned = _run_agent(step, key, tickets=tickets, use_case=use_case, agent=agent,
-                                     dry_run=dry_run) == "planned"
-                run_state[step_id] = "awaiting_approval" if planned else "ready"
+            tickets.remove_label(key, cfg["jira"]["reject_label"], dry_run=dry_run)
+            tickets.add_comment(key, "Rejected — the plan was not regenerated. Fix the issues, "
+                                     "then re-run this step.", dry_run=dry_run)
+            run_state[step_id] = "rejected"
             acted.append(step_id)
 
     _save_run_state(store, use_case, run_state, dry_run)
