@@ -74,3 +74,14 @@ export interface RunResult {
   provide: string[];
   poller: PollerState;
 }
+
+export type RunInfo =
+  | { exists: false; current_project_key: string }
+  | {
+      exists: true;
+      project_key: string;
+      started_at: string | null;
+      ticket_count: number;
+      current_project_key: string;
+      stale: boolean;
+    };

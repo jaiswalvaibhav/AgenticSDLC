@@ -288,3 +288,61 @@ def test_backend_restart_resumes_a_running_poller_but_not_a_stopped_one(cfg, tic
         second.post("/api/poller/stop")
     with TestClient(boot()) as third:  # the user stopped it -> stays stopped
         assert third.get("/api/poller").json()["active"] is False
+
+
+# ----------------------------------------------------------- saved run: info + reset --
+def test_info_labels_the_saved_run_with_its_project_and_start_time(live):
+    assert live.get(f"/api/runs/{UC}/info").json() == {"exists": False, "current_project_key": "DEMO"}
+
+    _run(live)
+    info = live.get(f"/api/runs/{UC}/info").json()
+
+    assert info["exists"] is True and info["project_key"] == "DEMO" and info["stale"] is False
+    assert info["ticket_count"] == 3 and info["started_at"]
+    assert live.get("/api/runs/nope/info").status_code == 404
+
+
+def test_info_flags_a_run_saved_in_another_project_and_infers_it_for_old_state(live, store):
+    # state saved before runs recorded their project: only steps.json, keyed by the old project
+    store.put_json(f"workflow/{UC}/steps.json", {"data_design_solution": "SCRUM-6"}, dry_run=False)
+
+    info = live.get(f"/api/runs/{UC}/info").json()
+
+    assert info["project_key"] == "SCRUM" and info["current_project_key"] == "DEMO"
+    assert info["stale"] is True and info["started_at"] is None
+
+
+def test_reset_forgets_the_run_but_leaves_jira_alone_and_stops_the_poller(live, tickets, store):
+    _run(live)
+    store.put_json(f"workflow/{UC}/run_state.json", {"develop_solution_requirements": "applied"}, dry_run=False)
+    store.put_json(f"workflow/{UC}/plan.json", {"requirements": []}, dry_run=False)
+    store.put_json(f"workflow/{UC}/traceability.json", {"records": []}, dry_run=False)
+    jira_tickets = set(tickets.issues)
+
+    response = live.post(f"/api/runs/{UC}/reset").json()
+
+    assert response["reset"] is True and response["poller"]["active"] is False
+    assert set(tickets.issues) == jira_tickets  # nothing deleted in Jira
+    for key in ("steps", "run_state", "plan", "traceability"):
+        assert store.get_json(f"workflow/{UC}/{key}.json") is None
+    assert live.get(f"/api/runs/{UC}/info").json()["exists"] is False
+    assert live.get(f"/api/runs/{UC}/progress").json()["steps"] == []
+    assert live.post("/api/runs/nope/reset").status_code == 404
+
+
+def test_trigger_after_reset_readopts_the_same_projects_tickets_without_duplicates(live, tickets):
+    first = _run(live).json()["steps"]
+    live.post(f"/api/runs/{UC}/reset")
+
+    again = _run(live).json()["steps"]
+
+    assert again == first
+    assert len(tickets.issues) == 3 + 1  # nothing was created twice
+
+
+def test_reset_leaves_a_poller_running_for_another_use_case_alone(live):
+    live.app.state.poller.start("other_use_case", "local")
+
+    live.post(f"/api/runs/{UC}/reset")
+
+    assert live.get("/api/poller").json()["use_case"] == "other_use_case"

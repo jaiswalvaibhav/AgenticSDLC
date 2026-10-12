@@ -305,6 +305,13 @@ What you do:
 
 Good to know:
 
+- **Saved run and "Start fresh"**: the Progress table shows the run saved for the use case (it survives
+  a backend restart), labelled with its Jira project and start time. Changing `jira.project_key` does *not*
+  clear it — the banner then turns amber ("these tickets aren't in project X"). Press **Start fresh…** to
+  forget the saved run (ticket map, run state, plan, traceability) and stop polling. **Jira tickets are
+  never deleted or changed.** The next trigger re-adopts same-project tickets by their marker labels (no
+  duplicates), or creates new ones in a different project. Without Start fresh, a trigger keeps adding to
+  the saved run, and steps already in it are *not* re-created.
 - **Poller**: Start / Stop / Sync now in the header. It resumes after a backend restart unless you stopped it.
   The one-time external-LLM consent is saved with it, so a restart resumes billed calls too; stop the poller
   to revoke.

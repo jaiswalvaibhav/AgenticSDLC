@@ -3,9 +3,10 @@ import * as api from "./api";
 import { PollerStatus } from "./components/PollerStatus";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { ProgressTable } from "./components/ProgressTable";
+import { RunBanner } from "./components/RunBanner";
 import { StepPicker } from "./components/StepPicker";
 import { TriggerDialog } from "./components/TriggerDialog";
-import type { Meta, PollerState, Preview, Progress, Step } from "./types";
+import type { Meta, PollerState, Preview, Progress, RunInfo, Step } from "./types";
 
 const PROGRESS_REFRESH_MS = 5000;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -19,6 +20,7 @@ export default function App() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [poller, setPoller] = useState<PollerState | null>(null);
+  const [runInfo, setRunInfo] = useState<RunInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progressError, setProgressError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -58,7 +60,8 @@ export default function App() {
 
   const load = useCallback(async () => {
     if (!useCase) return;
-    const [p, s] = await Promise.allSettled([api.getProgress(useCase, profile), api.getPoller()]);
+    const [p, s, r] = await Promise.allSettled([
+      api.getProgress(useCase, profile), api.getPoller(), api.getRunInfo(useCase, profile)]);
     if (p.status === "fulfilled") {
       setProgress(p.value);
       setProgressError(null);
@@ -66,6 +69,7 @@ export default function App() {
       setProgressError(message(p.reason));
     }
     if (s.status === "fulfilled") setPoller(s.value);
+    if (r.status === "fulfilled") setRunInfo(r.value);
   }, [useCase, profile]);
 
   useEffect(() => {
@@ -105,6 +109,22 @@ export default function App() {
       await load();
     } catch (e) {
       setDialogError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startFresh = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.resetRun(useCase, profile);
+      setPoller(result.poller);
+      setProgress(null);
+      setNotice("Started fresh: the saved run was cleared and polling stopped. Jira tickets were left as they are.");
+      await load();
+    } catch (e) {
+      setError(message(e));
     } finally {
       setBusy(false);
     }
@@ -168,6 +188,7 @@ export default function App() {
       </main>
 
       {progressError && <div className="banner error">Progress unavailable: {progressError}</div>}
+      <RunBanner info={runInfo} busy={busy} onStartFresh={startFresh} />
       <ProgressTable progress={progress} onRefresh={refresh} />
 
       {dialogOpen && meta && preview && (

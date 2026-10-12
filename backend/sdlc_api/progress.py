@@ -16,14 +16,44 @@ def selection_key(use_case: str) -> str:
     return f"ui/{use_case}/selection.json"
 
 
-def remember_selection(store: ObjectStore, use_case: str, generate: list[str], provide: list[str]) -> None:
-    """Which steps the user ticked (generate) vs. were added as inputs (provide). Merged
-    across triggers, since steps.json only ever grows."""
+def remember_selection(store: ObjectStore, use_case: str, generate: list[str], provide: list[str],
+                        project_key: str) -> None:
+    """Which steps the user ticked (generate) vs. were added as inputs (provide), and which
+    Jira project the run lives in. Merged across triggers, since steps.json only ever grows;
+    the project and start time are those of the run's first trigger."""
     old = store.get_json(selection_key(use_case)) or {}
     merged_generate = sorted(set(old.get("generate", [])) | set(generate))
     merged_provide = sorted((set(old.get("provide", [])) | set(provide)) - set(merged_generate))
-    store.put_json(selection_key(use_case), {"generate": merged_generate, "provide": merged_provide},
-                   dry_run=False)
+    store.put_json(selection_key(use_case), {
+        "generate": merged_generate, "provide": merged_provide,
+        "project_key": old.get("project_key", project_key),
+        "started_at": old.get("started_at", datetime.now(timezone.utc).isoformat())}, dry_run=False)
+
+
+def run_info(store: ObjectStore, use_case: str, current_project_key: str) -> dict:
+    """Which run the saved state describes — read from the store only (no Jira), so it works
+    even when the saved tickets can't be fetched. `stale` = the run is in a different Jira
+    project than the one configured now. A run saved before projects were recorded has its
+    project inferred from its ticket keys."""
+    steps_map = orchestrator._steps_map(store, use_case)
+    if not steps_map:
+        return {"exists": False, "current_project_key": current_project_key}
+    saved = store.get_json(selection_key(use_case)) or {}
+    project = saved.get("project_key") or next(iter(steps_map.values())).rsplit("-", 1)[0]
+    return {"exists": True, "project_key": project, "started_at": saved.get("started_at"),
+            "ticket_count": len(steps_map), "current_project_key": current_project_key,
+            "stale": project != current_project_key}
+
+
+def reset_run(store: ObjectStore, use_case: str) -> None:
+    """Forgets the saved run (ticket map, run state, plan, traceability, selection). Jira
+    tickets are not touched: a later trigger re-adopts same-project tickets by their marker
+    labels (workflow_start), and creates new ones in a different project. Leaves the Jira
+    status checkpoint alone — it only bounds how far back the poller looks."""
+    for key in (f"workflow/{use_case}/steps.json", f"workflow/{use_case}/run_state.json",
+                f"workflow/{use_case}/plan.json", f"workflow/{use_case}/plan.md",
+                f"workflow/{use_case}/traceability.json", selection_key(use_case)):
+        store.delete(key, dry_run=False)
 
 
 def _anchor(step_id: str, key: str, tickets: TicketSystem) -> dict:

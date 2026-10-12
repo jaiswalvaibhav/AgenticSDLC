@@ -21,7 +21,7 @@ from sdlc.workflow import orchestrator
 from sdlc.workflow.registry import Step, WorkflowError, WorkflowRegistry
 
 from sdlc_api.poller import Poller
-from sdlc_api.progress import build_progress, remember_selection
+from sdlc_api.progress import build_progress, remember_selection, reset_run, run_info
 
 
 class PreviewRequest(BaseModel):
@@ -149,7 +149,7 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         except requests.RequestException as exc:
             raise HTTPException(status_code=502, detail=f"Jira request failed: {exc}")
         generate, provide = [s.id for s in selection.selected], [s.id for s in selection.artifact_only]
-        remember_selection(run_store, body.use_case, generate, provide)
+        remember_selection(run_store, body.use_case, generate, provide, cfg["jira"]["project_key"])
         snapshots.pop(body.use_case, None)
         if body.profile == "local":
             poller.start(body.use_case, body.profile, body.confirm_external_llm)
@@ -170,6 +170,27 @@ def create_app(cfg: dict | None = None, registry: WorkflowRegistry | None = None
         if use_case not in _use_cases():
             raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
         return {**refresh(use_case, profile or cfg["profile"]), "poller": poller.snapshot()}
+
+    @app.get("/api/runs/{use_case}/info")
+    def info(use_case: str, profile: str | None = None) -> dict:
+        """Which run the saved state describes (project, start time, stale?) — no Jira calls."""
+        if use_case not in _use_cases():
+            raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
+        c = run_cfg(use_case, profile or cfg["profile"])
+        return run_info(store or object_store(c), use_case, cfg["jira"]["project_key"])
+
+    @app.post("/api/runs/{use_case}/reset")
+    def reset(use_case: str, profile: str | None = None) -> dict:
+        """'Start fresh': forgets the saved run for this use case (and stops the poller if it
+        is polling it). Jira tickets are left as they are."""
+        if use_case not in _use_cases():
+            raise HTTPException(status_code=404, detail=f"unknown use case: {use_case}")
+        if poller.run and poller.run["use_case"] == use_case:
+            poller.stop()
+        c = run_cfg(use_case, profile or cfg["profile"])
+        reset_run(store or object_store(c), use_case)
+        snapshots.pop(use_case, None)
+        return {"reset": True, "poller": poller.snapshot()}
 
     @app.get("/api/poller")
     def poller_status() -> dict:

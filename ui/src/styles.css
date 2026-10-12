@@ -62,3 +62,6 @@ code { background: var(--border); padding: 0 4px; border-radius: 3px; }
 .dialog .warn { display: flex; gap: 8px; align-items: flex-start; color: var(--warn); margin: 12px 0; }
 .dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .dialog .buttons .primary { margin-top: 0; }
+.banner.info, .banner.warn { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.banner.info { border-color: var(--border); background: var(--panel); }
+.banner.warn { border-color: var(--warn); color: var(--warn); background: var(--panel); }

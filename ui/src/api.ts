@@ -1,4 +1,4 @@
-import type { Meta, PollerState, Preview, Progress, RunRequest, RunResult, Step } from "./types";
+import type { Meta, PollerState, Preview, Progress, RunInfo, RunRequest, RunResult, Step } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -26,6 +26,12 @@ const progressPath = (useCase: string, profile: string) =>
 export const getProgress = (useCase: string, profile: string) => request<Progress>(progressPath(useCase, profile));
 export const refreshProgress = (useCase: string, profile: string) =>
   post<Progress>(`/runs/${encodeURIComponent(useCase)}/refresh?profile=${encodeURIComponent(profile)}`);
+
+const runPath = (useCase: string, profile: string, action: string) =>
+  `/runs/${encodeURIComponent(useCase)}/${action}?profile=${encodeURIComponent(profile)}`;
+export const getRunInfo = (useCase: string, profile: string) => request<RunInfo>(runPath(useCase, profile, "info"));
+export const resetRun = (useCase: string, profile: string) =>
+  post<{ reset: true; poller: PollerState }>(runPath(useCase, profile, "reset"));
 
 export const getPoller = () => request<PollerState>("/poller");
 export const startPoller = (useCase: string, profile: string, confirmExternalLlm: boolean) =>
