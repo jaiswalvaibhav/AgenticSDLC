@@ -31,8 +31,9 @@ class FakeStrandsAgent:
         self.cycles = cycles
         self.calls: list[tuple[type, list[dict]]] = []
 
-    def __call__(self, content, structured_output_model):
+    def __call__(self, content, structured_output_model, **kwargs):
         self.calls.append((structured_output_model, content))
+        self.kwargs = kwargs
         return _FakeAgentResult(self.plan, self.cycles)
 
 
@@ -318,7 +319,7 @@ def test_the_runs_live_status_ends_done_blocked_or_failed(tmp_path, cfg):
     assert blocked["running"] is False and blocked["outcome"] == "blocked" and "Data Design Solution" in blocked["error"]
 
     class Boom:
-        def __call__(self, content, structured_output_model):
+        def __call__(self, content, structured_output_model, **kwargs):
             raise RuntimeError("model exploded")
 
     _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>L</h2><p>x</p>")
@@ -352,3 +353,58 @@ def test_the_trace_has_what_the_model_was_sent_and_the_plan_it_returned(tmp_path
     assert "## Data Design Solution" in text and "Raw, Curated." in text and "Daily batch." in text
     assert trace["result"]["summary"] == "Nothing yet." and trace["result"]["plan"]["requirements"] == []
     assert trace["outcome"] == "planned"
+
+
+def test_the_agent_run_is_capped_by_config(tmp_path, cfg):
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>L</h2><p>x</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>P</h2><p>y</p>")
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    agent = FakeStrandsAgent(SolutionRequirementsPlan(summary="", requirements=[]))
+    _run(store, tickets, cfg, agent=agent)
+    assert agent.kwargs["limits"] == {"turns": 6}
+    _run(store, tickets, {**cfg, "analyst": {"max_model_calls": 2}}, agent=agent)
+    assert agent.kwargs["limits"] == {"turns": 2}
+
+
+def test_a_run_that_ends_without_a_plan_fails_instead_of_returning_nothing(tmp_path, cfg):
+    from sdlc.agents.activity import activity_key
+    from sdlc.agents.analyst.engine import PlanGenerationFailed
+
+    class GaveUp:
+        def __call__(self, content, structured_output_model, **kwargs):
+            return SimpleNamespace(structured_output=None, stop_reason="limit_turns")
+
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>L</h2><p>x</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>P</h2><p>y</p>")
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    with pytest.raises(PlanGenerationFailed, match="limit_turns"):
+        _run(store, tickets, cfg, agent=GaveUp(), step_id="s")
+    assert store.get_json(activity_key(UC, "s"))["outcome"] == "failed"
+
+
+def test_the_timeout_cancels_a_run_that_overruns(tmp_path, cfg):
+    import threading
+
+    from sdlc.agents.analyst.engine import PlanGenerationFailed
+
+    class Slow:
+        def __init__(self):
+            self.cancelled = threading.Event()
+
+        def cancel(self):
+            self.cancelled.set()
+
+        def __call__(self, content, structured_output_model, **kwargs):
+            self.cancelled.wait(5)  # a real agent stops at its next safe point after cancel()
+            return SimpleNamespace(structured_output=None, stop_reason="cancelled")
+
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>L</h2><p>x</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>P</h2><p>y</p>")
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    agent = Slow()
+    with pytest.raises(PlanGenerationFailed, match="cancelled"):
+        _run(store, tickets, {**cfg, "analyst": {"timeout_seconds": 0.05}}, agent=agent)
+    assert agent.cancelled.is_set()
