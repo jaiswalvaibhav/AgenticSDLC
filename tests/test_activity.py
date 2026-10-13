@@ -1,5 +1,5 @@
 from sdlc.adapters.fake import FakeObjectStore
-from sdlc.agents.activity import RunRecorder, activity_key
+from sdlc.agents.activity import RunRecorder, activity_key, trace_key
 
 UC = "uc"
 KEY = activity_key(UC, "step")
@@ -109,3 +109,26 @@ def test_only_the_newest_runs_are_kept():
     assert kept == [r.run_id for r in reversed(recorders)][:TRACE_KEEP]
     assert read_trace(store, UC, "step", recorders[0].run_id) is None  # pruned with its index entry
     assert read_trace(store, UC, "step", recorders[-1].run_id) is not None
+
+
+def test_a_failed_tool_call_is_recorded_but_a_successful_one_is_not():
+    from types import SimpleNamespace
+
+    from strands.hooks import AfterToolCallEvent
+    store = FakeObjectStore()
+    recorder = RunRecorder(store, UC, "step", dry_run=False)
+    registered = {}
+
+    class Registry:
+        def add_callback(self, event_type, callback):
+            registered[event_type] = callback
+
+    recorder.hooks().register_hooks(Registry())
+    use = {"name": "SolutionRequirementsPlan"}
+    registered[AfterToolCallEvent](SimpleNamespace(tool_use=use, result={
+        "status": "success", "content": [{"text": "Successfully validated"}]}))
+    registered[AfterToolCallEvent](SimpleNamespace(tool_use=use, result={
+        "status": "error", "content": [{"text": "Field 'requirements -> 3 -> workstream': bad"}, {"text": "x" * 9000}]}))
+    (event,) = store.get_json(trace_key(UC, "step", recorder.run_id))["events"]
+    assert event["type"] == "tool_error" and event["tool"] == "SolutionRequirementsPlan"
+    assert event["text"].startswith("Field 'requirements -> 3 -> workstream'") and len(event["text"]) == 4000

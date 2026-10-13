@@ -24,6 +24,7 @@ honour SYSTEM_PROMPT's instruction to use search_knowledge for supporting contex
 """
 import html
 import re
+import threading
 from pathlib import Path
 
 import yaml
@@ -268,6 +269,35 @@ def _plan_html(plan: SolutionRequirementsPlan) -> str:
     return "".join(parts)
 
 
+class PlanGenerationFailed(RuntimeError):
+    """The model run ended without a valid plan (call cap or timeout reached)."""
+
+
+def _generate_plan(agent, content: list[dict], cfg: dict):
+    """One bounded agent run. Strands feeds a schema-validation error back to the model with
+    no retry cap of its own, so without these limits a field the model keeps getting wrong
+    loops forever, re-sending the whole input every time. `max_model_calls` caps the loop and
+    `timeout_seconds` cancels the run (checked between model calls and while streaming)."""
+    limits = cfg.get("analyst", {})
+    timer = None
+    if cancel := getattr(agent, "cancel", None):
+        timer = threading.Timer(limits.get("timeout_seconds", 900), cancel)
+        timer.daemon = True
+        timer.start()
+    try:
+        result = agent(content, structured_output_model=SolutionRequirementsPlan,
+                       limits={"turns": limits.get("max_model_calls", 6)})
+    finally:
+        if timer:
+            timer.cancel()
+    if result.structured_output is None:
+        raise PlanGenerationFailed(
+            f"the model returned no valid plan (stop reason: {getattr(result, 'stop_reason', 'unknown')}). "
+            "Raise analyst.max_model_calls / analyst.timeout_seconds in config.yaml, or check the agent log "
+            "for the validation errors.")
+    return result
+
+
 def llm_usage_key(use_case: str) -> str:
     return f"workflow/{use_case}/llm_usage.json"
 
@@ -351,7 +381,7 @@ def _run_solution_requirements(context: dict, *, doc_source: DocumentSource,
     content = _content_blocks(anchor_docs)
     recorder.record_input(system_prompt(kb=knowledge_index is not None), content, knowledge_index is not None)
     agent = agent or _build_real_agent(knowledge_index, use_case, cfg, recorder)
-    result = agent(content, structured_output_model=SolutionRequirementsPlan)
+    result = _generate_plan(agent, content, cfg)
     _record_llm_usage(result, store=store, use_case=use_case, step_id=context.get("step_id"), dry_run=dry_run)
     plan = result.structured_output
     plan.use_case = use_case

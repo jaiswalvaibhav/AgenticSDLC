@@ -143,6 +143,7 @@ export type TraceEvent =
       error: string | null;
       content: TraceBlock[];
     }
+  | { type: "tool_error"; tool: string; at: string; text: string }
   | { type: "kb_search"; query: string; started_at: string; ended_at: string | null; chunks: KbChunk[]; error: string | null };
 
 export interface AgentRunSummary {

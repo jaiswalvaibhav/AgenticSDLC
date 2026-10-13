@@ -82,6 +82,14 @@ function Event({ event }: { event: TraceEvent }) {
       </li>
     );
   }
+  if (event.type === "tool_error") {
+    return (
+      <li>
+        <strong>Tool error</strong> <code>{event.tool}</code> <span className="muted small">{time(event.at)}</span>
+        <pre className="log-text error">{event.text}</pre>
+      </li>
+    );
+  }
   return (
     <li>
       <strong>Knowledge base search</strong> <code>{event.query}</code>{" "}

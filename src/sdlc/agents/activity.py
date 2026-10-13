@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from sdlc.ports import ObjectStore
 
 TRACE_KEEP = 10
+TOOL_ERROR_CHARS = 4000  # a validation error for a long plan can be huge; the first lines name the field
 
 
 def activity_key(use_case: str, step_id: str) -> str:
@@ -69,15 +70,17 @@ def _block(block: dict) -> dict:
 
 
 class _Hooks:
-    """A Strands HookProvider: records each model call and its response."""
+    """A Strands HookProvider: records each model call and its response, and failed tool calls
+    (notably the structured-output tool's validation errors, which Strands feeds back to the model)."""
 
     def __init__(self, recorder: "RunRecorder"):
         self.recorder = recorder
 
     def register_hooks(self, registry, **kwargs) -> None:
-        from strands.hooks import AfterModelCallEvent, BeforeModelCallEvent
+        from strands.hooks import AfterModelCallEvent, AfterToolCallEvent, BeforeModelCallEvent
         registry.add_callback(BeforeModelCallEvent, self._before_model_call)
         registry.add_callback(AfterModelCallEvent, self._after_model_call)
+        registry.add_callback(AfterToolCallEvent, self._after_tool_call)
 
     def _before_model_call(self, event) -> None:
         self.recorder.model_call()
@@ -86,6 +89,12 @@ class _Hooks:
         response = event.stop_response
         self.recorder.model_response(response.message if response else None,
                                      response.stop_reason if response else None, event.exception)
+
+    def _after_tool_call(self, event) -> None:
+        result = event.result or {}
+        if result.get("status") == "error":
+            text = "\n".join(b["text"] for b in result.get("content", []) if "text" in b)
+            self.recorder.tool_error(event.tool_use.get("name", "unknown"), text)
 
 
 class RunRecorder:
@@ -156,6 +165,11 @@ class RunRecorder:
         call.update(ended_at=_now(), stop_reason=stop_reason,
                     error=f"{type(exception).__name__}: {exception}" if exception else None,
                     content=[_block(b) for b in (message or {}).get("content", [])])
+        self._flush_trace()
+
+    def tool_error(self, tool: str, text: str) -> None:
+        self.trace["events"].append({"type": "tool_error", "tool": tool, "at": _now(),
+                                     "text": text[:TOOL_ERROR_CHARS]})
         self._flush_trace()
 
     def on_search(self, query: str) -> None:
