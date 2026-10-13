@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 
 from sdlc.agents.analyst.ticket_anchors import AttachmentSource, ConfluenceSource
 from sdlc.ports import DocumentSource, ObjectStore, TicketSystem
@@ -73,7 +73,11 @@ def _split_sections(html: str) -> list[tuple[str, str]]:
                 sections.append((heading, "\n".join(parts)))
             heading, parts = el.get_text(strip=True), []
         elif el.name in ("p", "li", "td", "th") and el.find(["h1", "h2", "h3"]) is None:
-            text = el.get_text(" ", strip=True)
+            # only this block's own text: a nested block (Confluence wraps cell and list text in <p>)
+            # is visited on its own, so get_text() on the outer one would emit it twice
+            text = " ".join(t.strip() for t in el.find_all(string=True)
+                            if t.strip() and not isinstance(t, Comment)
+                            and t.find_parent(["p", "li", "td", "th"]) is el)
             if text:
                 parts.append(text)
     if parts:

@@ -137,3 +137,18 @@ def test_reads_csv_as_one_section():
 def test_pdf_is_passed_through_as_a_native_document():
     result = _attachment_read("TDS.pdf", "pdf", b"%PDF-1.7")
     assert result.sections == [] and [(d.format, d.data) for d in result.documents] == [("pdf", b"%PDF-1.7")]
+
+
+def test_split_sections_does_not_repeat_text_wrapped_in_nested_blocks():
+    from sdlc.agents.analyst.anchors import _split_sections
+
+    html = ("<h2>Layers</h2><table><tr><td><p>cell</p></td><th><p>head</p></th></tr></table>"
+            "<ul><li><p>one</p></li><li>two <ul><li><p>sub</p></li></ul></li></ul><!-- hidden -->")
+    assert _split_sections(html) == [("Layers", "cell\nhead\none\ntwo\nsub")]
+
+
+def test_split_sections_keeps_text_that_sits_beside_a_nested_block():
+    from sdlc.agents.analyst.anchors import _split_sections
+
+    html = "<h2>H</h2><table><tr><td>before <p>inside</p> after</td></tr></table>"
+    assert _split_sections(html) == [("H", "before after\ninside")]
