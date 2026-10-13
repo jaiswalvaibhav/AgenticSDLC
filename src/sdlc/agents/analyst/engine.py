@@ -22,10 +22,13 @@ that older API only ever sends the output-schema tool to the model — never the
 agent's own registered tools (e.g. search_knowledge) — so the model has no way to
 honour SYSTEM_PROMPT's instruction to use search_knowledge for supporting context.
 """
+import asyncio
 import html
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import yaml
 
@@ -131,13 +134,8 @@ def _build_local_llm_model(provider: str, confirmed: bool = False):
     raise ValueError(f"Unknown EXTERNAL_LLM_PROVIDER={provider!r} (expected 'anthropic' or 'gemini')")
 
 
-def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg: dict,
-                       recorder: RunRecorder | None = None):
+def _build_model(cfg: dict):
     import os
-
-    from strands import Agent
-
-    from sdlc.agents.analyst.tools import make_search_knowledge_tool
 
     provider = os.environ.get("EXTERNAL_LLM_PROVIDER")
     if cfg["profile"] == "local" and provider:
@@ -160,6 +158,16 @@ def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg
         from strands.models import BedrockModel
 
         model = BedrockModel(model_id=model_id, region_name=cfg["aws"]["region"])
+    return model
+
+
+def _build_real_agent(knowledge_index: KnowledgeIndex | None, use_case: str, cfg: dict,
+                       recorder: RunRecorder | None = None):
+    from strands import Agent
+
+    from sdlc.agents.analyst.tools import make_search_knowledge_tool
+
+    model = _build_model(cfg)
 
     # no KnowledgeIndex = no search_knowledge tool and a prompt that doesn't mention it
     tools = [make_search_knowledge_tool(knowledge_index, use_case, on_search=recorder and recorder.on_search,
@@ -298,6 +306,38 @@ def _generate_plan(agent, content: list[dict], cfg: dict):
     return result
 
 
+def _generate_plan_native(model, system_prompt_text: str, content: list[dict], cfg: dict,
+                           recorder: RunRecorder):
+    """One native structured-output call, with no agent loop (analyst.native_structured_output,
+    KB off only: with no tools the loop adds nothing). The provider constrains the response to
+    the schema, so there is no validation-retry cycle; the flip side is no retry at all, so a
+    cut-off or invalid response fails the run instead. Returns what _generate_plan returns."""
+    timeout = cfg.get("analyst", {}).get("timeout_seconds", 900)
+    messages = [{"role": "user", "content": content}]
+
+    async def call():
+        plan = None
+        async for event in model.structured_output(SolutionRequirementsPlan, messages, system_prompt_text):
+            plan = event.get("output", plan)
+        return plan
+
+    def run():
+        return asyncio.run(asyncio.wait_for(call(), timeout))
+
+    recorder.model_call()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:  # asyncio.run needs a thread with no running loop
+            plan = pool.submit(run).result()
+    except TimeoutError as exc:
+        recorder.model_response(None, "timeout", exc)
+        raise PlanGenerationFailed(f"the model call took longer than analyst.timeout_seconds ({timeout}s)") from exc
+    except Exception as exc:
+        recorder.model_response(None, None, exc)
+        raise
+    recorder.model_response(None, "end_turn", None)
+    return SimpleNamespace(structured_output=plan, metrics=SimpleNamespace(cycle_count=1))
+
+
 def llm_usage_key(use_case: str) -> str:
     return f"workflow/{use_case}/llm_usage.json"
 
@@ -380,8 +420,11 @@ def _run_solution_requirements(context: dict, *, doc_source: DocumentSource,
     recorder.phase("calling_model", "preparing the model call")
     content = _content_blocks(anchor_docs)
     recorder.record_input(system_prompt(kb=knowledge_index is not None), content, knowledge_index is not None)
-    agent = agent or _build_real_agent(knowledge_index, use_case, cfg, recorder)
-    result = _generate_plan(agent, content, cfg)
+    if agent is None and knowledge_index is None and cfg.get("analyst", {}).get("native_structured_output"):
+        result = _generate_plan_native(_build_model(cfg), system_prompt(kb=False), content, cfg, recorder)
+    else:
+        agent = agent or _build_real_agent(knowledge_index, use_case, cfg, recorder)
+        result = _generate_plan(agent, content, cfg)
     _record_llm_usage(result, store=store, use_case=use_case, step_id=context.get("step_id"), dry_run=dry_run)
     plan = result.structured_output
     plan.use_case = use_case

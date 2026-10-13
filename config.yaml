@@ -33,6 +33,7 @@ analyst:
   max_anchor_chars: 400000   # ~100k tokens; anchors above this block with a comment, never truncated
   max_pdf_bytes: 4500000
   max_model_calls: 6   # caps the agent loop: a schema-validation error is fed back to the model, so without a cap a field it keeps getting wrong loops forever
+  native_structured_output: false   # KB off only: one provider-constrained structured call instead of the agent loop (no validation retries, but no retry at all). Not yet verified against a live Gemini/Bedrock/Anthropic call
   timeout_seconds: 900   # cancels a plan run that takes longer than this
   use_knowledge_base: true   # false = run the analyst from the DDS/TDS alone, no Knowledge Base calls (also off automatically when aws.knowledge_base_id is empty)
 orchestrator:

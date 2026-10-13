@@ -408,3 +408,62 @@ def test_the_timeout_cancels_a_run_that_overruns(tmp_path, cfg):
     with pytest.raises(PlanGenerationFailed, match="cancelled"):
         _run(store, tickets, {**cfg, "analyst": {"timeout_seconds": 0.05}}, agent=agent)
     assert agent.cancelled.is_set()
+
+
+class FakeNativeModel:
+    """Stands in for a Strands Model: `structured_output` is an async generator yielding {"output": plan}."""
+
+    def __init__(self, plan=None, delay=0.0):
+        self.plan, self.delay, self.calls = plan, delay, []
+
+    async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
+        import asyncio
+        self.calls.append((output_model, prompt, system_prompt))
+        await asyncio.sleep(self.delay)
+        yield {"output": self.plan}
+
+
+def _run_native(tmp_path, cfg, model, monkeypatch, *, knowledge_index=None, agent=None, step_id="s"):
+    monkeypatch.setattr("sdlc.agents.analyst.engine._build_model", lambda cfg: model)
+    store, tickets = FakeObjectStore(), FakeTicketSystem()
+    _seed_anchor(tmp_path, store, "1", "Data Design Solution", "<h2>L</h2><p>x</p>")
+    _seed_anchor(tmp_path, store, "2", "Technical Design Solution", "<h2>P</h2><p>y</p>")
+    _step_tickets(store, tickets, dds=("link", "1"), tds=("link", "2"))
+    issue = tickets.create_issue("Story", "Solution Requirements", dry_run=False)
+    doc_source = FakeDocumentSource()
+    doc_source.add_page("Order Fulfilment Performance", page_id="0")
+    cfg = {**cfg, "analyst": {"native_structured_output": True, **cfg.get("analyst", {})}}
+    result = run_solution_requirements(
+        {"use_case": UC, "issue_key": issue.key, "step_id": step_id}, doc_source=doc_source,
+        knowledge_index=knowledge_index, tickets=tickets, store=store, cfg=cfg, dry_run=False, agent=agent)
+    return result, store
+
+
+def test_native_structured_output_makes_one_model_call_with_no_agent(tmp_path, cfg, monkeypatch):
+    from sdlc.agents.activity import activity_key
+
+    plan = SolutionRequirementsPlan(summary="s", requirements=[])
+    model = FakeNativeModel(plan)
+    result, store = _run_native(tmp_path, cfg, model, monkeypatch)
+    assert result["status"] == "planned"
+    (output_model, prompt, system), = model.calls
+    assert output_model is SolutionRequirementsPlan and "No knowledge base is available" in system
+    assert prompt[0]["role"] == "user" and "Data Design Solution" in prompt[0]["content"][0]["text"]
+    assert store.get_json(activity_key(UC, "s"))["model_calls"] == 1
+    assert store.get_json("workflow/%s/llm_usage.json" % UC)["s"] == {"calls": 1, "runs": 1}
+
+
+def test_native_structured_output_is_skipped_when_the_kb_is_on(tmp_path, cfg, monkeypatch):
+    model = FakeNativeModel(SolutionRequirementsPlan(summary="", requirements=[]))
+    agent = FakeStrandsAgent(SolutionRequirementsPlan(summary="from agent", requirements=[]))
+    _run_native(tmp_path, cfg, model, monkeypatch, knowledge_index=FakeKnowledgeIndex(), agent=agent)
+    assert model.calls == [] and len(agent.calls) == 1
+
+
+def test_native_structured_output_times_out(tmp_path, cfg, monkeypatch):
+    from sdlc.agents.analyst.engine import PlanGenerationFailed
+
+    model = FakeNativeModel(SolutionRequirementsPlan(summary="", requirements=[]), delay=5)
+    cfg = {**cfg, "analyst": {"timeout_seconds": 0.05}}
+    with pytest.raises(PlanGenerationFailed, match="timeout_seconds"):
+        _run_native(tmp_path, cfg, model, monkeypatch)
