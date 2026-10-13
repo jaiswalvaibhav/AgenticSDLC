@@ -52,8 +52,7 @@ _NO_KB_SENTENCE = (
     "requirement's description. "
 )
 _PROMPT_BODY = (
-    "Produce solution requirements grouped into workstreams (raw_ingestion, "
-    "curated_modelling, presentation_bi, data_quality), each with a citation back to "
+    "Produce solution requirements grouped into workstreams as per the design and requirements, each with a citation back to "
     "the exact DDS/TDS section heading it came from plus any stakeholder requirement "
     "ids (e.g. SR-1) it traces to. For a document given as a PDF, cite its own "
     "section headings as source_section. "
